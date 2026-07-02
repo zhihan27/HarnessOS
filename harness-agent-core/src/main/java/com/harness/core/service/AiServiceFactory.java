@@ -40,17 +40,4 @@ public class AiServiceFactory {
         return openaiService;
     }
 
-    /**
-     * 获取 OpenAI 服务
-     */
-    public AiChatService getOpenaiService() {
-        return openaiService;
-    }
-
-    /**
-     * 获取 Anthropic 服务
-     */
-    public AiChatService getAnthropicService() {
-        return anthropicService;
-    }
 }
