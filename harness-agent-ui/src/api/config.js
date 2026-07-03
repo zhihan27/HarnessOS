@@ -16,4 +16,4 @@ export const DEFAULT_HEADERS = {
 }
 
 // 超时配置（毫秒）
-export const REQUEST_TIMEOUT = 30000
+export const REQUEST_TIMEOUT = 120000  // 2分钟

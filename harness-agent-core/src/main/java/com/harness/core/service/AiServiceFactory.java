@@ -2,11 +2,13 @@ package com.harness.core.service;
 
 import com.harness.core.tool.BashToolProvider;
 import com.harness.core.tool.ToolProvider;
+import com.harness.core.tool.TodoWriteToolProvider;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopProxyUtils;
@@ -27,6 +29,7 @@ public class AiServiceFactory {
     private final AnthropicChatModel anthropicChatModel;
     private final ToolProvider toolProvider;
     private final BashToolProvider bashToolProvider;
+    private final TodoWriteToolProvider todoWriteToolProvider;
 
     private final AiChatService openaiService;
     private final AiChatService anthropicService;
@@ -34,26 +37,31 @@ public class AiServiceFactory {
     public AiServiceFactory(OpenAiChatModel openaiChatModel,
                            AnthropicChatModel anthropicChatModel,
                            ToolProvider toolProvider,
-                           BashToolProvider bashToolProvider) {
+                           BashToolProvider bashToolProvider,
+                           TodoWriteToolProvider todoWriteToolProvider) {
         this.openaiChatModel = openaiChatModel;
         this.anthropicChatModel = anthropicChatModel;
         this.toolProvider = toolProvider;
         this.bashToolProvider = bashToolProvider;
+        this.todoWriteToolProvider = todoWriteToolProvider;
 
         logger.info("初始化 AI 服务工厂，注册工具...");
 
         // 获取原始对象（去除 CGLIB 代理），避免 LangChain4j 无法识别 @Tool 注解
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
 
         if (rawToolProvider == null) rawToolProvider = toolProvider;
         if (rawBashToolProvider == null) rawBashToolProvider = bashToolProvider;
+        if (rawTodoWriteToolProvider == null) rawTodoWriteToolProvider = todoWriteToolProvider;
 
         // 构建 AI 服务实例，集成 Tool Use 和 ChatMemory
         this.openaiService = AiServices.builder(AiChatService.class)
                 .chatModel(openaiChatModel)
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
+                .tools(rawTodoWriteToolProvider)
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
                 .build();
 
@@ -61,6 +69,7 @@ public class AiServiceFactory {
                 .chatModel(anthropicChatModel)
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
+                .tools(rawTodoWriteToolProvider)
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
                 .build();
 
@@ -90,11 +99,14 @@ public class AiServiceFactory {
 
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
 
         Class<?> toolProviderClass = rawToolProvider != null ?
             rawToolProvider.getClass() : toolProvider.getClass();
         Class<?> bashToolProviderClass = rawBashToolProvider != null ?
             rawBashToolProvider.getClass() : bashToolProvider.getClass();
+        Class<?> todoWriteToolProviderClass = rawTodoWriteToolProvider != null ?
+            rawTodoWriteToolProvider.getClass() : todoWriteToolProvider.getClass();
 
         // 统计基础工具数量（去除 CGLIB 代理类的影响）
         for (Method method : toolProviderClass.getDeclaredMethods()) {
@@ -105,6 +117,13 @@ public class AiServiceFactory {
 
         // 统计 Bash 工具数量
         for (Method method : bashToolProviderClass.getDeclaredMethods()) {
+            if (method.isAnnotationPresent(Tool.class)) {
+                count++;
+            }
+        }
+
+        // 统计 TodoWrite 工具数量
+        for (Method method : todoWriteToolProviderClass.getDeclaredMethods()) {
             if (method.isAnnotationPresent(Tool.class)) {
                 count++;
             }

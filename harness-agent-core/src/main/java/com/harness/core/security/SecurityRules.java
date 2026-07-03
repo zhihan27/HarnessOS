@@ -75,7 +75,7 @@ public class SecurityRules {
 
         // Bash 工具特定规则
         toolSpecificRules.put("executeBash", Arrays.asList(
-            "rm", "del", "format", "shutdown"
+            "rm", "del", "format", "shutdown", "rmdir"
         ));
     }
 
