@@ -68,6 +68,33 @@ public class AgentTodoTaskService {
     }
 
     /**
+     * 获取会话的未完成任务（记忆锚点）
+     *
+     * @param sessionId 会话 ID
+     * @return 未完成的任务列表
+     */
+    public List<AgentTodoTask> getPendingTasks(String sessionId) {
+        LambdaQueryWrapper<AgentTodoTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(AgentTodoTask::getSessionId, sessionId)
+               .eq(AgentTodoTask::getStatus, TaskStatus.PENDING.getValue())
+               .orderByAsc(AgentTodoTask::getCreatedAt);
+        return taskMapper.selectList(wrapper);
+    }
+
+    /**
+     * 检查会话是否有未完成任务
+     *
+     * @param sessionId 会话 ID
+     * @return 是否有未完成任务
+     */
+    public boolean hasPendingTasks(String sessionId) {
+        LambdaQueryWrapper<AgentTodoTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(AgentTodoTask::getSessionId, sessionId)
+               .eq(AgentTodoTask::getStatus, TaskStatus.PENDING.getValue());
+        return taskMapper.selectCount(wrapper) > 0;
+    }
+
+    /**
      * 标记任务完成
      *
      * @param taskId 任务 ID

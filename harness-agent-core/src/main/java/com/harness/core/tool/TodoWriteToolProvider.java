@@ -23,7 +23,6 @@ public class TodoWriteToolProvider {
     private static final Logger logger = LoggerFactory.getLogger(TodoWriteToolProvider.class);
 
     private final AgentTodoTaskService taskService;
-
     // 当前会话上下文（由拦截器注入）
     private static final ThreadLocal<SessionContext> currentSession = new ThreadLocal<>();
 
@@ -147,6 +146,66 @@ public class TodoWriteToolProvider {
             logger.error("标记任务完成失败: {}", e.getMessage(), e);
             return "操作失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 检查未完成任务（记忆锚点）
+     *
+     * AI 应在关键节点调用此 Tool：
+     * - 完成一个任务步骤后
+     * - 准备给出"任务完成"结论前
+     *
+     * 返回未完成任务列表，Agent Loop 自动继续执行
+     */
+    @Tool("检查是否有未完成的任务。返回未完成任务列表，如果有则继续执行。应在完成每个步骤后调用。")
+    public String checkPendingTasks() {
+        String sessionId = TodoWriteToolProvider.getCurrentSessionId();
+        if (sessionId == null) {
+            return "无会话上下文";
+        }
+
+        List<AgentTodoTask> pendingTasks = taskService.getPendingTasks(sessionId);
+
+        if (pendingTasks.isEmpty()) {
+            logger.info("所有任务已完成");
+            return "✅ 所有任务已完成，可以给出最终结论。";
+        }
+
+        // 构造未完成任务提醒
+        String taskList = pendingTasks.stream()
+                .map(t -> String.format("- [待完成] ID:%d | %s", t.getId(), t.getTaskDescription()))
+                .collect(Collectors.joining("\n"));
+
+        String reminder = String.format(
+                "⚠️ 还有 %d 个任务未完成：\n%s\n\n请继续执行这些任务。",
+                pendingTasks.size(), taskList
+        );
+
+        logger.info("发现未完成任务: {}", pendingTasks.size());
+        return reminder;
+    }
+
+    /**
+     * 获取当前会话的任务完成进度
+     */
+    @Tool("获取当前会话的任务完成进度统计")
+    public String getTaskProgress() {
+        String sessionId = TodoWriteToolProvider.getCurrentSessionId();
+        if (sessionId == null) {
+            return "无会话上下文";
+        }
+
+        List<AgentTodoTask> allTasks = taskService.getAllTasks(sessionId);
+        List<AgentTodoTask> pendingTasks = taskService.getPendingTasks(sessionId);
+        List<AgentTodoTask> completedTasks = allTasks.stream()
+                .filter(t -> "COMPLETED".equals(t.getStatus()))
+                .collect(Collectors.toList());
+
+        return String.format(
+                "任务进度：已完成 %d/%d\n- 完成: %d\n- 待执行: %d",
+                completedTasks.size(), allTasks.size(),
+                completedTasks.size(), pendingTasks.size()
+        );
     }
 
     /**
