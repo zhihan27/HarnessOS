@@ -1,15 +1,11 @@
 package com.harness.core.enums;
 
 /**
- * 子任务类型枚举
+ * 任务类型枚举（简化版）
+ * 仅保留通用类型，所有任务统一拆解
  */
 public enum TaskType {
 
-    RESEARCH("研究调查"),
-    CODING("编码开发"),
-    ANALYSIS("数据分析"),
-    TESTING("测试验证"),
-    DOCUMENTATION("文档编写"),
     GENERAL("通用任务");
 
     private final String description;
@@ -27,11 +23,6 @@ public enum TaskType {
     }
 
     public static TaskType fromValue(String value) {
-        for (TaskType type : TaskType.values()) {
-            if (type.name().equals(value)) {
-                return type;
-            }
-        }
         return GENERAL;
     }
 }

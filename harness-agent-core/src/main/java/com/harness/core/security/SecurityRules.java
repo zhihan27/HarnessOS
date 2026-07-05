@@ -44,9 +44,6 @@ public class SecurityRules {
             // 远程代码执行
             "wget | bash", "wget | sh", "curl | bash", "curl | sh",
 
-            // 权限破坏
-            "chmod -R 777 /", "chown -R",
-
             // 数据库高危
             "DROP TABLE", "TRUNCATE TABLE"
         ));

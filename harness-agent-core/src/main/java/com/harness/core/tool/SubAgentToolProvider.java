@@ -12,11 +12,7 @@ import java.util.stream.Collectors;
 
 /**
  * 子 Agent 工具提供者
- * 提供任务拆分能力，执行时自动重试
- *
- * 关键设计：
- * 1. 父子上下文隔离：子 Agent 使用独立的 subAgentSessionId
- * 2. 自动重试：executeSubTask 内部自动重试，AI 无需关心重试细节
+ * 只提供创建子任务功能（执行由Hook链处理）
  */
 @Component
 public class SubAgentToolProvider {
@@ -51,7 +47,7 @@ public class SubAgentToolProvider {
     /**
      * 创建子任务
      */
-    @Tool("创建子任务，将复杂任务拆分给专门的子 Agent 执行。子 Agent 使用独立上下文。参数：taskType（RESEARCH/CODING/ANALYSIS/TESTING/DOCUMENTATION/GENERAL）, description（任务描述）")
+    @Tool("创建子任务。参数：taskType, description")
     public String spawnSubAgent(String taskType, String description) {
         try {
             SessionContext context = getSessionContext();
@@ -61,61 +57,12 @@ public class SubAgentToolProvider {
                     taskType, description, null
             );
 
-            return String.format(
-                    "子任务已创建 [ID: %d]\n类型: %s\n描述: %s\n请执行: executeSubAgent(%d)",
-                    task.getId(), taskType, description, task.getId()
-            );
+            return String.format("子任务已创建 [ID: %d]\n类型: %s\n描述: %s",
+                    task.getId(), taskType, description);
 
         } catch (Exception e) {
             logger.error("创建子任务失败: {}", e.getMessage(), e);
             return "创建失败: " + e.getMessage();
-        }
-    }
-
-    /**
-     * 创建带输入参数的子任务
-     */
-    @Tool("创建带输入参数的子任务。参数：taskType, description, input（任务输入）")
-    public String spawnSubAgentWithInput(String taskType, String description, String input) {
-        try {
-            SessionContext context = getSessionContext();
-
-            SubAgentTask task = subAgentService.createSubTask(
-                    context.tenantId, context.userId, context.sessionId,
-                    taskType, description, input
-            );
-
-            return String.format(
-                    "子任务已创建 [ID: %d]\n类型: %s\n描述: %s\n请执行: executeSubAgent(%d)",
-                    task.getId(), taskType, description, task.getId()
-            );
-
-        } catch (Exception e) {
-            return "创建失败: " + e.getMessage();
-        }
-    }
-
-    /**
-     * 执行子任务（自动重试）
-     */
-    @Tool("执行子任务并返回结果。失败时会自动重试（最多3次），无需手动干预。参数：taskId")
-    public String executeSubAgent(Long taskId) {
-        try {
-            logger.info("执行子任务: id={}", taskId);
-
-            SubAgentService.ExecuteResult result = subAgentService.executeSubTask(taskId);
-
-            if (result.success()) {
-                return String.format("任务成功 [ID: %d]\n重试次数: %d\n结果:\n%s",
-                        taskId, result.retryCount(), result.result());
-            } else {
-                return String.format("任务失败 [ID: %d]\n已尝试: %d 次\n原因: %s",
-                        taskId, result.retryCount(), result.result());
-            }
-
-        } catch (Exception e) {
-            logger.error("执行子任务失败: {}", e.getMessage(), e);
-            return "执行失败: " + e.getMessage();
         }
     }
 
@@ -132,10 +79,9 @@ public class SubAgentToolProvider {
             }
 
             return String.format(
-                    "任务状态 [ID: %d]\n类型: %s\n状态: %s\n描述: %s\n重试: %d/%d\n错误: %s\n结果: %s",
+                    "任务状态 [ID: %d]\n类型: %s\n状态: %s\n描述: %s\n错误: %s\n结果: %s",
                     taskId, task.getTaskType(), task.getStatus(),
                     task.getTaskDescription(),
-                    task.getRetryCount(), task.getMaxRetries(),
                     task.getLastError() != null ? task.getLastError() : "无",
                     task.getResult() != null ? task.getResult() : "无"
             );
