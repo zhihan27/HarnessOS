@@ -19,6 +19,7 @@ public class ChatContext {
     private String result;
     private boolean success;
     private List<SubAgentTask> subTasks;
+    private boolean needLoop;  // 是否需要循环迭代处理
 
     public ChatContext(String tenantId, String userId, String sessionId, String message) {
         this.tenantId = tenantId;
@@ -26,6 +27,7 @@ public class ChatContext {
         this.sessionId = sessionId;
         this.message = message;
         this.success = true;
+        this.needLoop = false;
     }
 
 }

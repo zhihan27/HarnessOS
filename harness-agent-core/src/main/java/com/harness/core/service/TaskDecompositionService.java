@@ -5,6 +5,7 @@ import com.harness.core.dto.TaskDecompositionContext;
 import com.harness.core.enums.TaskType;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,11 +23,27 @@ public class TaskDecompositionService {
     private static final Logger logger = LoggerFactory.getLogger(TaskDecompositionService.class);
 
     private final OpenAiChatModel openAiChatModel;
-    private final AiChatService decompositionService;
+
+    // 简单的拆解接口（无记忆，单参数）
+    private interface DecompositionAI {
+        @SystemMessage("""
+            你是任务分析专家。分析用户任务，拆解为具体子任务步骤。
+
+            要求：
+            1. 每个子任务必须是具体的、可独立执行的操作
+            2. 子任务之间尽量独立，可以并行执行
+            3. 根据任务实际情况拆解
+
+            输出格式：每行一个子任务，格式为"序号|子任务描述"
+            """)
+        String decompose(String taskDescription);
+    }
+
+    private final DecompositionAI decompositionAI;
 
     public TaskDecompositionService(OpenAiChatModel openAiChatModel) {
         this.openAiChatModel = openAiChatModel;
-        this.decompositionService = AiServices.builder(AiChatService.class)
+        this.decompositionAI = AiServices.builder(DecompositionAI.class)
                 .chatModel(openAiChatModel)
                 .build();
     }
@@ -38,40 +55,14 @@ public class TaskDecompositionService {
         logger.info("AI拆解任务: {}", context.getMainTaskDescription());
 
         // 调用AI生成拆解计划
-        String decompositionPrompt = buildDecompositionPrompt(context.getMainTaskDescription());
-        String aiResponse = decompositionService.chat(decompositionPrompt);
+        String taskPrompt = context.getMainTaskDescription();
+        String aiResponse = decompositionAI.decompose(taskPrompt);
 
         // 解析AI返回的子任务列表
         List<SubTaskDefinition> subTasks = parseSubTasks(aiResponse);
 
         logger.info("拆解完成: {} 个子任务", subTasks.size());
         return subTasks;
-    }
-
-    /**
-     * 构建拆解prompt
-     */
-    private String buildDecompositionPrompt(String task) {
-        return String.format("""
-            分析以下任务，将其拆解为具体的子任务步骤。
-
-            任务：%s
-
-            要求：
-            1. 每个子任务必须是一个具体的、可独立执行的操作
-            2. 子任务之间尽量独立，可以并行执行
-            3. 根据任务实际情况拆解，不要固定模板
-
-            输出格式（每行一个子任务）：
-            序号|子任务描述
-
-            例如格式：
-            1|第一步具体操作
-            2|第二步具体操作
-            3|第三步具体操作
-
-            请根据任务内容输出拆解结果：
-            """, task);
     }
 
     /**

@@ -35,14 +35,20 @@ mybatis-plus:
 # AI 模型配置
 ai:
   openai:
-    api-key: ${OPENAI_API_KEY:your-openai-api-key-here}
-    model-name: gpt-4o
-    base-url: https://api.openai.com/v1
+    api-key: ${OPENAI_API_KEY:sk-5006746ad6d445d58c9e48d21bc0be6e}
+    model-name: deepseek-v4-flash
+    base-url: https://api.deepseek.com
 
   anthropic:
-    api-key: ${ANTHROPIC_API_KEY:your-anthropic-api-key-here}
-    model-name: claude-sonnet-4-6
-    base-url: https://api.anthropic.com
+    api-key: ${ANTHROPIC_API_KEY:sk-5006746ad6d445d58c9e48d21bc0be6e}
+    model-name: deepseek-v4-flash
+    base-url: https://api.deepseek.com/anthropic
+
+  # 记忆管理配置
+  memory:
+    max-tokens: 128000
+    compression-threshold: 0.80
+    preserved-messages: 4
 # 日志配置
 logging:
   level:

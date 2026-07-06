@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import com.harness.core.memory.DatabaseChatMemoryStore;
 import com.harness.core.tool.BashToolProvider;
 import com.harness.core.tool.SubAgentToolProvider;
 import com.harness.core.tool.ToolProvider;
@@ -18,7 +19,8 @@ import java.lang.reflect.Method;
 
 /**
  * AI 服务工厂
- * 提供不同模型类型的 AiServices 实例，集成 Tool Use 和 ChatMemory
+ * 提供不同模型类型的 AiServices 实例，集成 Tool Use 和持久化 ChatMemory
+ * 使用 ChatMemoryProvider 实现多会话隔离
  */
 @Service
 public class AiServiceFactory {
@@ -31,30 +33,46 @@ public class AiServiceFactory {
     private final BashToolProvider bashToolProvider;
     private final TodoWriteToolProvider todoWriteToolProvider;
     private final SubAgentToolProvider subAgentToolProvider;
+    private final DatabaseChatMemoryStore memoryStore;
 
-    private final AiChatService openaiService;
-    private final AiChatService anthropicService;
+    // 最大消息数量（用于MessageWindowChatMemory）
+    private static final int MAX_MESSAGES = 100;
+
+    // AI服务单例（用于所有会话，memoryId动态传递）
+    private AiChatService sharedService;
 
     public AiServiceFactory(OpenAiChatModel openaiChatModel,
                            AnthropicChatModel anthropicChatModel,
                            ToolProvider toolProvider,
                            BashToolProvider bashToolProvider,
                            TodoWriteToolProvider todoWriteToolProvider,
-                           SubAgentToolProvider subAgentToolProvider) {
+                           SubAgentToolProvider subAgentToolProvider,
+                           DatabaseChatMemoryStore memoryStore) {
         this.openaiChatModel = openaiChatModel;
         this.anthropicChatModel = anthropicChatModel;
         this.toolProvider = toolProvider;
         this.bashToolProvider = bashToolProvider;
         this.todoWriteToolProvider = todoWriteToolProvider;
         this.subAgentToolProvider = subAgentToolProvider;
+        this.memoryStore = memoryStore;
 
         logger.info("初始化 AI 服务工厂，注册工具...");
 
-        // 获取原始对象（去除 CGLIB 代理），避免 LangChain4j 无法识别 @Tool 注解
+        // 初始化共享的AI服务实例（memoryId通过chat方法参数传递）
+        initSharedService();
+
+        logger.info("AI 服务工厂初始化完成，已注册 {} 个工具", getToolCount());
+    }
+
+    /**
+     * 初始化共享的AI服务实例
+     * ChatMemoryProvider根据memoryId动态创建/获取会话记忆
+     */
+    private void initSharedService() {
+        // 获取原始对象（去除 CGLIB 代理）
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
         Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
-
         Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
 
         if (rawToolProvider == null) rawToolProvider = toolProvider;
@@ -62,45 +80,72 @@ public class AiServiceFactory {
         if (rawTodoWriteToolProvider == null) rawTodoWriteToolProvider = todoWriteToolProvider;
         if (rawSubAgentToolProvider == null) rawSubAgentToolProvider = subAgentToolProvider;
 
-        // 构建 AI 服务实例，集成 Tool Use 和 ChatMemory
-        this.openaiService = AiServices.builder(AiChatService.class)
+        // 构建共享的AI服务实例，使用ChatMemoryProvider实现多会话隔离
+        // memoryId通过AiChatService.chat(@MemoryId sessionId, message)传递
+        this.sharedService = AiServices.builder(AiChatService.class)
                 .chatModel(openaiChatModel)
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
                 .tools(rawTodoWriteToolProvider)
                 .tools(rawSubAgentToolProvider)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
+                        .id(memoryId)
+                        .maxMessages(MAX_MESSAGES)
+                        .chatMemoryStore(memoryStore)
+                        .build())
                 .build();
 
-        this.anthropicService = AiServices.builder(AiChatService.class)
-                .chatModel(anthropicChatModel)
-                .tools(rawToolProvider)
-                .tools(rawBashToolProvider)
-                .tools(rawTodoWriteToolProvider)
-                .tools(rawSubAgentToolProvider)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
-                .build();
-
-        logger.info("AI 服务工厂初始化完成，已注册 {} 个工具", getToolCount());
+        logger.debug("共享AI服务实例初始化完成");
     }
 
     /**
      * 根据模型类型获取对应的 AI 服务
+     * 返回共享的服务实例，memoryId通过chat方法参数传递
      *
-     * @param modelType 模型类型 (openai/anthropic)
+     * @param modelType 模型类型 (openai/anthropic) - 当前仅使用openai
+     * @param sessionId 会话ID（仅用于日志，实际通过@MemoryId传递）
      * @return AI 聊天服务
      */
-    public AiChatService getService(String modelType) {
-        if ("anthropic".equalsIgnoreCase(modelType)) {
-            return anthropicService;
-        }
-        return openaiService;
+    public AiChatService getService(String modelType, String sessionId) {
+        logger.debug("获取AI服务: modelType={}, sessionId={}", modelType, sessionId);
+        // 返回共享服务，memoryId在调用chat时通过@MemoryId传递
+        return sharedService;
+    }
+
+    /**
+     * 获取默认的 AI 服务（无会话隔离）
+     * 用于简单的独立任务执行
+     */
+    public AiChatService getDefaultService(String modelType) {
+        Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
+        Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
+        Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
+
+        if (rawToolProvider == null) rawToolProvider = toolProvider;
+        if (rawBashToolProvider == null) rawBashToolProvider = bashToolProvider;
+        if (rawTodoWriteToolProvider == null) rawTodoWriteToolProvider = todoWriteToolProvider;
+        if (rawSubAgentToolProvider == null) rawSubAgentToolProvider = subAgentToolProvider;
+
+        return AiServices.builder(AiChatService.class)
+                .chatModel(openaiChatModel)
+                .tools(rawToolProvider)
+                .tools(rawBashToolProvider)
+                .tools(rawTodoWriteToolProvider)
+                .tools(rawSubAgentToolProvider)
+                .build();  // 无ChatMemory，每次独立执行
+    }
+
+    /**
+     * 清除会话记忆缓存
+     */
+    public void clearSessionCache(String sessionId) {
+        memoryStore.clearCache(sessionId);
+        logger.debug("清除会话记忆缓存: sessionId={}", sessionId);
     }
 
     /**
      * 获取已注册的工具数量
-     * 通过反射获取所有 ToolProvider 类中标注了 @Tool 注解的方法数量
-     * 使用原始对象避免 CGLIB 代理影响
      */
     public int getToolCount() {
         int count = 0;
@@ -108,7 +153,6 @@ public class AiServiceFactory {
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
         Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
-
         Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
 
         Class<?> toolProviderClass = rawToolProvider != null ?
@@ -120,32 +164,17 @@ public class AiServiceFactory {
         Class<?> subAgentToolProviderClass = rawSubAgentToolProvider != null ?
             rawSubAgentToolProvider.getClass() : subAgentToolProvider.getClass();
 
-        // 统计基础工具数量（去除 CGLIB 代理类的影响）
         for (Method method : toolProviderClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Tool.class)) {
-                count++;
-            }
+            if (method.isAnnotationPresent(Tool.class)) count++;
         }
-
-        // 统计 Bash 工具数量
         for (Method method : bashToolProviderClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Tool.class)) {
-                count++;
-            }
+            if (method.isAnnotationPresent(Tool.class)) count++;
         }
-
-        // 统计 TodoWrite 工具数量
         for (Method method : todoWriteToolProviderClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Tool.class)) {
-                count++;
-            }
+            if (method.isAnnotationPresent(Tool.class)) count++;
         }
-
-        // 统计 SubAgent 工具数量
         for (Method method : subAgentToolProviderClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Tool.class)) {
-                count++;
-            }
+            if (method.isAnnotationPresent(Tool.class)) count++;
         }
 
         return count;

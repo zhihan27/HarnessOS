@@ -61,3 +61,14 @@ export async function get(endpoint) {
     method: 'GET'
   })
 }
+
+/**
+ * DELETE 请求封装
+ * @param {string} endpoint - API 路径
+ * @returns {Promise<object>}
+ */
+export async function del(endpoint) {
+  return request(endpoint, {
+    method: 'DELETE'
+  })
+}

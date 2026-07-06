@@ -1,24 +1,19 @@
 package com.harness.core.service;
 
-import com.harness.core.entity.SubAgentTask;
+import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.hook.ChatContext;
 import com.harness.core.hook.ChatHookExecutor;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.service.AiServices;
+import com.harness.core.tool.SubAgentToolProvider;
+import com.harness.core.tool.TodoWriteToolProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 /**
  * Agent 服务
- * chat方法显式调用AI，Hook无感执行
+ * 封装完整的对话流程：会话管理 + 任务跟踪 + AI调用
  */
 @Service
 public class AgentService {
@@ -26,95 +21,126 @@ public class AgentService {
     private static final Logger logger = LoggerFactory.getLogger(AgentService.class);
 
     private final ChatHookExecutor hookExecutor;
-    private final OpenAiChatModel openAiChatModel;
-
-    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+    private final AiServiceFactory aiServiceFactory;
+    private final ChatSessionService chatSessionService;
+    private final AgentTodoTaskService todoTaskService;
 
     public AgentService(ChatHookExecutor hookExecutor,
-                        OpenAiChatModel openAiChatModel) {
+                        AiServiceFactory aiServiceFactory,
+                        ChatSessionService chatSessionService,
+                        AgentTodoTaskService todoTaskService) {
         this.hookExecutor = hookExecutor;
-        this.openAiChatModel = openAiChatModel;
+        this.aiServiceFactory = aiServiceFactory;
+        this.chatSessionService = chatSessionService;
+        this.todoTaskService = todoTaskService;
     }
 
     /**
-     * Chat接口
-     * 显式调用AI，Hook无感拦截
+     * 完整的对话流程
+     * 包含：会话管理、任务跟踪、AI调用
      */
     public ChatResult chat(String tenantId, String userId, String sessionId, String message) {
-        logger.info("Chat开始: sessionId={}", sessionId);
+        // 1. 会话管理：获取或创建会话
+        SessionInfo sessionInfo = prepareSession(sessionId, message);
 
-        ChatContext context = new ChatContext(tenantId, userId, sessionId, message);
+        // 2. 设置工具上下文
+        TodoWriteToolProvider.setSessionContext(tenantId, userId, sessionInfo.sessionId);
+        SubAgentToolProvider.setSessionContext(tenantId, userId, sessionInfo.sessionId);
 
-        // 前置Hook：安全检查、任务拆解
-        hookExecutor.executeBefore(context);
+        try {
+            // 3. 创建跟踪任务
+            AgentTodoTask trackingTask = todoTaskService.createTask(
+                    tenantId, userId, sessionInfo.sessionId, message, null
+            );
+            logger.info("创建跟踪任务: id={}", trackingTask.getId());
 
-        if (!context.isSuccess()) {
-            return new ChatResult(false, context.getResult(), sessionId);
+            // 4. 前置hook执行
+            ChatContext context = new ChatContext(tenantId, userId, sessionInfo.sessionId, message);
+            hookExecutor.executeBefore(context);
+
+            if (!context.isSuccess()) {
+                return new ChatResult(false, context.getResult(), sessionInfo.sessionId);
+            }
+
+            String aiResponse = callAI(sessionInfo.sessionId, message);
+            context.setResult(aiResponse);
+
+            // 5.后置hook执行
+            hookExecutor.executeAfter(context);
+
+            // 6. 标记跟踪任务完成
+            todoTaskService.markCompleted(trackingTask.getId());
+
+            logger.info("Chat完成: success={}", context.isSuccess());
+            return new ChatResult(context.isSuccess(), context.getResult(), sessionInfo.sessionId);
+
+        } finally {
+            // 6. 清理工具上下文
+            TodoWriteToolProvider.clearSessionContext();
+            SubAgentToolProvider.clearSessionContext();
         }
-
-        // === 显式调用AI ===
-        String aiResponse = callAI(context);
-        // ==================
-
-        context.setResult(aiResponse);
-
-        // 后置Hook：完整性检查
-        hookExecutor.executeAfter(context);
-
-        logger.info("Chat完成: success={}", context.isSuccess());
-
-        return new ChatResult(context.isSuccess(), context.getResult(), sessionId);
     }
 
     /**
-     * 异步执行子任务，主线程等待后组装结果
+     * 准备会话：获取或创建，并设置标题
      */
-    private String callAI(ChatContext context) {
-        List<SubAgentTask> subTasks = context.getSubTasks();
-        StringBuilder summary = new StringBuilder();
+    private SessionInfo prepareSession(String sessionId, String message) {
+        boolean isNewSession = false;
 
-        // 异步执行所有子任务
-        List<CompletableFuture<String>> futures = subTasks.stream()
-                .map(task -> CompletableFuture.supplyAsync(() -> executeTask(task), executor))
-                .toList();
-
-        // 主线程等待所有任务完成
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .orTimeout(60, TimeUnit.SECONDS)
-                .join();
-
-        // 组装结果
-        for (int i = 0; i < futures.size(); i++) {
-            SubAgentTask task = subTasks.get(i);
-            String result = futures.get(i).join();
-
-            summary.append("[").append(task.getTaskDescription()).append("]\n");
-            summary.append(result).append("\n\n");
+        if (sessionId == null || sessionId.isEmpty()) {
+            sessionId = generateSessionId();
+            chatSessionService.createSessionWithId(sessionId, "default-tenant", "default-user");
+            isNewSession = true;
+            logger.info("创建新会话: sessionId={}", sessionId);
+        } else if (!chatSessionService.existsSession(sessionId)) {
+            chatSessionService.createSessionWithId(sessionId, "default-tenant", "default-user");
+            isNewSession = true;
+            logger.info("会话不存在，创建新会话: sessionId={}", sessionId);
         }
 
-        return summary.toString();
+        // 新会话设置标题
+        if (isNewSession) {
+            String title = generateTitle(message);
+            chatSessionService.updateSessionTitle(sessionId, title);
+            logger.info("设置会话标题: sessionId={}, title={}", sessionId, title);
+        }
+
+        return new SessionInfo(sessionId, isNewSession);
     }
 
     /**
-     * 执行单个子任务
+     * 调用AI服务
      */
-    private String executeTask(SubAgentTask task) {
-        logger.info("执行子任务: {}", task.getTaskDescription());
-
-        AiChatService aiService = AiServices.builder(AiChatService.class)
-                .chatModel(openAiChatModel)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
-                .build();
-
-        String prompt = buildPrompt(task);
-        return aiService.chat(prompt);
+    private String callAI(String sessionId, String message) {
+        logger.info("调用AI: sessionId={}", sessionId);
+        AiChatService aiService = aiServiceFactory.getService("openai", sessionId);
+        return aiService.chat(sessionId, message);
     }
 
-    private String buildPrompt(SubAgentTask task) {
-        return String.format("任务: %s\n输入: %s\n要求: 独立完成并返回结果摘要。",
-                task.getTaskDescription(),
-                task.getTaskInput() != null ? task.getTaskInput() : "");
+    /**
+     * 生成会话ID
+     */
+    private String generateSessionId() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
+
+    /**
+     * 生成会话标题
+     */
+    private String generateTitle(String message) {
+        if (message == null || message.isEmpty()) {
+            return "新对话";
+        }
+        String title = message.replaceAll("[\\r\\n\\t]", " ").trim();
+        if (title.length() > 20) {
+            title = title.substring(0, 20) + "...";
+        }
+        return title;
+    }
+
+    // ========== 内部记录 ==========
+
+    private record SessionInfo(String sessionId, boolean isNewSession) {}
 
     public record ChatResult(boolean success, String message, String sessionId) {}
 }
