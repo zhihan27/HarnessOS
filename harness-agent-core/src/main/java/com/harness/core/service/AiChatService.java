@@ -17,39 +17,57 @@ public interface AiChatService {
         - 命令语法: Windows cmd 或 PowerShell
         - 路径格式: D:\\folder 或 C:\\Users
 
-        ## 工具使用规范
+        ## 工具调用规则（重要）
 
-        ### 1. Todo 工具（每条任务必用）
-        用途：记录任务步骤，防止跑偏，方便回顾进度。
+        **核心原则：遇到复杂任务时，必须调用工具！不要只回复文本！**
 
-        规范：
-        - 开始任务时：调用 addTodo(description) 记录任务目标
-        - 完成步骤后：调用 finishTodo(id) 标记完成
-        - 随时可调用：listTodo() 查看进度
+        ### 复杂任务判定标准
+        以下情况必须使用 Task Team 工具：
+        - 任务需要多个步骤完成
+        - 任务可以拆分成子任务
+        - 任务有依赖关系（某些步骤需要在其他步骤完成后执行）
+        - 任务执行时间较长
 
-        注意：Todo 只是记录工具，不会拆解或执行任务。
+        ### Task Team 工具调用流程
 
-        ### 2. SubAgent 工具（复杂任务才用）
-        用途：将复杂任务拆解成多个独立子任务，并发执行提高效率。
+        对于复杂任务，必须按以下流程调用工具：
 
-        规范：
-        - 判断任务是否需要拆解（如：多个独立模块、可并行执行）
-        - 调用 spawnSubAgent(taskType, description) 创建子任务
-        - TaskType: RESEARCH/CODING/ANALYSIS/TESTING/DOCUMENTATION/GENERAL
+        **正确流程**：
+        ```
+        步骤1: createTask(subject, description) - 创建所有子任务
+        步骤2: setBlockedBy(taskId, blockedByList) - 设置依赖关系（如有）
+        步骤3: 回复用户: "任务已创建，WorkerAgent正在后台执行"
+        ```
 
-        示例：
-        - "帮我分析项目并写文档" → 拆解为 ANALYSIS + DOCUMENTATION 两个子任务
-        - "分析吃海鲜可行性" → 不需要拆解，直接分析回答即可
+        **示例对话**：
+        用户: "帮我创建 Vue 项目并实现登录功能"
 
-        ### 3. Bash 工具
-        用于执行系统命令，获取实时信息。
+        AI 正确响应（必须调用工具）:
+        1. createTask("创建Vue项目", "使用npm create vue创建Vue3项目，安装基础依赖")
+        2. createTask("实现登录页面", "创建登录组件、表单验证、样式")
+        3. createTask("实现登录API", "编写后端登录接口、JWT认证")
+        4. setBlockedBy(taskId2, "taskId1")  // 登录页面依赖Vue项目
+        5. setBlockedBy(taskId3, "taskId1,taskId2")  // API依赖前两个
+        6. 回复: "✅ 已创建3个任务，WorkerAgent正在后台执行。任务ID：xxx, xxx, xxx"
 
-        ## 判断流程
-        1. 收到用户问题 → addTodo 记录目标
-        2. 分析任务复杂度：
-           - 简单任务：直接回答
-           - 复杂任务（多个独立部分）：spawnSubAgent 拆解
-        3. 执行任务 → 完成后 finishTodo
+        **错误做法**：
+        ❌ 只回复文本描述如何做（复杂任务必须调用工具！）
+        ❌ 创建任务后继续尝试执行任务内容（任务由WorkerAgent执行）
+        ❌ 忘记设置任务依赖关系
+
+        ### 简单任务处理
+        - 单个简单任务：使用 createAndRun(subject, description) 一步完成
+        - 简单问题/咨询：直接回答，无需工具
+
+        ### 其他工具
+        - Todo 工具：用于会话级简单记录，会话结束消失
+        - SubAgent 工具：需要独立上下文的同步子任务（会阻塞等待）
+        - Bash 工具：执行系统命令
+
+        ## 环境约束
+        - 操作系统: Windows
+        - 命令语法: Windows cmd 或 PowerShell
+        - 路径格式: D:\\folder 或 C:\\Users
         """)
     String chat(@MemoryId String sessionId, @UserMessage String userMessage);
 }

@@ -67,12 +67,12 @@ public class ChatSessionService {
 
     /**
      * 查询用户的所有会话列表
+     * 默认查询所有活跃会话（不区分租户和用户）
      */
     public List<ChatSession> listSessionsByUser(String tenantId, String userId) {
         LambdaQueryWrapper<ChatSession> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ChatSession::getTenantId, tenantId)
-               .eq(ChatSession::getUserId, userId)
-               .eq(ChatSession::getStatus, SessionStatus.ACTIVE.getValue())
+        // 只查询活跃会话，不区分租户和用户
+        wrapper.eq(ChatSession::getStatus, SessionStatus.ACTIVE.getValue())
                .orderByDesc(ChatSession::getLastMessageAt);
         return sessionMapper.selectList(wrapper);
     }

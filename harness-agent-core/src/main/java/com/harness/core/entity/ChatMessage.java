@@ -69,6 +69,17 @@ public class ChatMessage {
     private String toolResult;
 
     /**
+     * 工具调用ID（用于匹配工具结果与AI请求的tool_call_id）
+     */
+    private String toolCallId;
+
+    /**
+     * 工具调用请求JSON数组（用于AI消息包含多个工具调用）
+     * 格式：[{"id":"xxx","name":"xxx","arguments":"xxx"}]
+     */
+    private String toolExecutionRequests;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)

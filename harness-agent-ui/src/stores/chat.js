@@ -8,7 +8,9 @@ export const useChatStore = defineStore('chat', () => {
   const savedModelType = localStorage.getItem('harness-model-type')
   const savedSessionId = localStorage.getItem('harness-session-id')
   const modelType = ref(savedModelType || 'openai')
-  const currentSessionId = ref(savedSessionId || '')
+
+  // 只有当 sessionId 有效（非空）时才使用
+  const currentSessionId = ref(savedSessionId && savedSessionId.length > 0 ? savedSessionId : null)
 
   const messages = ref([])
   const sessions = ref([])
@@ -20,8 +22,14 @@ export const useChatStore = defineStore('chat', () => {
     localStorage.setItem('harness-model-type', newVal)
   })
 
+  // 监听 sessionId 变化，只有有效值才保存
   watch(currentSessionId, (newVal) => {
-    localStorage.setItem('harness-session-id', newVal)
+    if (newVal && newVal.length > 0) {
+      localStorage.setItem('harness-session-id', newVal)
+    } else {
+      // 清除无效值
+      localStorage.removeItem('harness-session-id')
+    }
   })
 
   const setModelType = (type) => {
@@ -131,9 +139,19 @@ export const useChatStore = defineStore('chat', () => {
     try {
       await del(`${API_ROUTES.SESSIONS}/${sessionId}`)
       await fetchSessions()
+
       if (currentSessionId.value === sessionId) {
-        currentSessionId.value = ''
-        clearMessages()
+        // 如果删除的是当前会话，切换到其他会话或清除
+        if (sessions.value.length > 0) {
+          // 选择最新的会话
+          currentSessionId.value = sessions.value[0].sessionId
+          await fetchRecentHistory(currentSessionId.value, 20)
+        } else {
+          // 没有其他会话，清除状态
+          currentSessionId.value = null
+          localStorage.removeItem('harness-session-id')
+          clearMessages()
+        }
       }
     } catch (error) {
       console.error('删除会话失败:', error)

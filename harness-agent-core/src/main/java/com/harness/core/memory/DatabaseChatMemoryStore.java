@@ -258,25 +258,48 @@ public class DatabaseChatMemoryStore implements ChatMemoryStore {
 
     /**
      * 将数据库实体转换为LangChain4j消息
-     * 注意：工具调用消息简化处理，避免格式错误
+     * 正确处理工具调用请求和结果消息
      */
     private dev.langchain4j.data.message.ChatMessage convertToLangChainMessage(com.harness.core.entity.ChatMessage entity) {
+        String messageType = entity.getMessageType();
         String content = entity.getContent();
 
-        // 跳过空内容或工具调用摘要消息（避免发送给API时格式错误）
-        if (content == null || content.isEmpty() || content.startsWith("Tool Calls:")) {
-            // 工具调用请求不恢复为消息，LangChain4j会自动处理
-            return null;
-        }
-
-        return switch (entity.getMessageType()) {
-            case "SYSTEM" -> SystemMessage.from(content);
-            case "USER" -> UserMessage.from(content);
-            case "AI" -> AiMessage.from(content);
+        return switch (messageType) {
+            case "SYSTEM" -> SystemMessage.from(content != null ? content : "");
+            case "USER" -> UserMessage.from(content != null ? content : "");
+            case "AI" -> {
+                // 检查是否有工具执行请求
+                String requestsJson = entity.getToolExecutionRequests();
+                if (requestsJson != null && !requestsJson.isEmpty()) {
+                    // 从JSON反序列化工具调用请求
+                    List<ToolExecutionRequest> requests = deserializeToolExecutionRequests(requestsJson);
+                    if (!requests.isEmpty()) {
+                        // 创建带工具调用请求的AiMessage
+                        String text = (content != null && !content.isEmpty()) ? content : null;
+                        yield AiMessage.aiMessage(text, requests);
+                    }
+                }
+                // 普通AI消息
+                yield AiMessage.from(content != null ? content : "");
+            }
             case "TOOL" -> {
-                // 工具结果消息：转换为用户消息格式（包含工具执行结果）
-                // 避免发送 function role 给 OpenAI
-                yield UserMessage.from("工具执行结果: " + content);
+                // 转换为 ToolExecutionResultMessage
+                // 需要创建一个 ToolExecutionRequest 来匹配
+                String toolCallId = entity.getToolCallId();
+                String resultContent = content != null ? content : "";
+
+                // 从保存的信息重建 ToolExecutionRequest
+                String reqId = toolCallId != null ? toolCallId : "unknown";
+                String reqName = entity.getToolName() != null ? entity.getToolName() : "unknown";
+                String reqArgs = entity.getToolArgs() != null ? entity.getToolArgs() : "{}";
+
+                ToolExecutionRequest dummyRequest = ToolExecutionRequest.builder()
+                        .id(reqId)
+                        .name(reqName)
+                        .arguments(reqArgs)
+                        .build();
+
+                yield ToolExecutionResultMessage.toolExecutionResultMessage(dummyRequest, resultContent);
             }
             default -> null;
         };
@@ -305,28 +328,35 @@ public class DatabaseChatMemoryStore implements ChatMemoryStore {
         } else if (message instanceof AiMessage aiMsg) {
             entity.setMessageType(MessageType.AI.getValue());
             // 处理AI消息：可能只有文本、只有工具调用、或两者都有
-            if (aiMsg.text() != null) {
+            if (aiMsg.text() != null && !aiMsg.text().isEmpty()) {
                 entity.setContent(aiMsg.text());
-            } else if (aiMsg.hasToolExecutionRequests()) {
-                // 当AI消息只有工具调用请求时，记录工具调用信息
-                StringBuilder toolInfo = new StringBuilder("Tool Calls: ");
-                for (ToolExecutionRequest req : aiMsg.toolExecutionRequests()) {
-                    toolInfo.append(req.name()).append("(").append(req.arguments()).append(") ");
+            }
+            if (aiMsg.hasToolExecutionRequests()) {
+                // 序列化所有工具调用请求为JSON
+                String requestsJson = serializeToolExecutionRequests(aiMsg.toolExecutionRequests());
+                entity.setToolExecutionRequests(requestsJson);
+
+                // 兼容性：保存第一个工具调用的信息
+                ToolExecutionRequest firstReq = aiMsg.toolExecutionRequests().get(0);
+                entity.setToolName(firstReq.name());
+                entity.setToolArgs(firstReq.arguments());
+
+                // 如果没有文本内容，设置空字符串避免NULL约束
+                if (entity.getContent() == null) {
+                    entity.setContent("");
                 }
-                entity.setContent(toolInfo.toString());
-                // 同时保存工具调用详情
-                entity.setToolName(aiMsg.toolExecutionRequests().get(0).name());
-                entity.setToolArgs(aiMsg.toolExecutionRequests().get(0).arguments());
-            } else {
-                // 空的AI消息，设置空字符串避免NULL约束
+            }
+            // 空的AI消息设置空字符串
+            if (entity.getContent() == null) {
                 entity.setContent("");
             }
         } else if (message instanceof ToolExecutionResultMessage toolMsg) {
             entity.setMessageType(MessageType.TOOL.getValue());
-            // 工具结果可能为空，确保content不为null
             String toolResultText = toolMsg.text();
             entity.setContent(toolResultText != null ? toolResultText : "");
             entity.setToolResult(toolResultText);
+            // 保存 tool_call_id 用于匹配
+            entity.setToolCallId(toolMsg.id());
         } else {
             // 其他类型的消息作为用户消息处理
             entity.setMessageType(MessageType.USER.getValue());
@@ -334,6 +364,129 @@ public class DatabaseChatMemoryStore implements ChatMemoryStore {
         }
 
         return entity;
+    }
+
+    /**
+     * 序列化工具执行请求列表为JSON
+     */
+    private String serializeToolExecutionRequests(List<ToolExecutionRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < requests.size(); i++) {
+            ToolExecutionRequest req = requests.get(i);
+            if (i > 0) sb.append(",");
+            sb.append("{\"id\":\"").append(escapeJson(req.id())).append("\"");
+            sb.append(",\"name\":\"").append(escapeJson(req.name())).append("\"");
+            sb.append(",\"arguments\":\"").append(escapeJson(req.arguments())).append("\"}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    /**
+     * 反序列化JSON为工具执行请求列表
+     */
+    private List<ToolExecutionRequest> deserializeToolExecutionRequests(String json) {
+        if (json == null || json.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<ToolExecutionRequest> requests = new ArrayList<>();
+        try {
+            // 简单解析JSON数组
+            String content = json.trim();
+            if (!content.startsWith("[") || !content.endsWith("]")) {
+                return requests;
+            }
+            content = content.substring(1, content.length() - 1); // 去掉 []
+
+            // 分割每个对象
+            List<String> objects = parseJsonObjects(content);
+            for (String obj : objects) {
+                String id = extractJsonValue(obj, "id");
+                String name = extractJsonValue(obj, "name");
+                String arguments = extractJsonValue(obj, "arguments");
+                if (id != null && name != null) {
+                    // 使用 builder 创建 ToolExecutionRequest
+                    ToolExecutionRequest request = ToolExecutionRequest.builder()
+                            .id(id)
+                            .name(name)
+                            .arguments(arguments != null ? arguments : "{}")
+                            .build();
+                    requests.add(request);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("反序列化工具执行请求失败: {}", e.getMessage());
+        }
+        return requests;
+    }
+
+    /**
+     * 解析JSON对象列表
+     */
+    private List<String> parseJsonObjects(String content) {
+        List<String> objects = new ArrayList<>();
+        int depth = 0;
+        int start = -1;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '{') {
+                if (depth == 0) start = i;
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    objects.add(content.substring(start, i + 1));
+                    start = -1;
+                }
+            }
+        }
+        return objects;
+    }
+
+    /**
+     * 提取JSON字段值
+     */
+    private String extractJsonValue(String json, String key) {
+        String searchKey = "\"" + key + "\":\"";
+        int start = json.indexOf(searchKey);
+        if (start < 0) return null;
+        start += searchKey.length();
+        int end = start;
+        while (end < json.length()) {
+            char c = json.charAt(end);
+            if (c == '"' && (end == 0 || json.charAt(end - 1) != '\\')) {
+                break;
+            }
+            end++;
+        }
+        return unescapeJson(json.substring(start, end));
+    }
+
+    /**
+     * JSON字符串转义
+     */
+    private String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r")
+                  .replace("\t", "\\t");
+    }
+
+    /**
+     * JSON字符串反转义
+     */
+    private String unescapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\\"", "\"")
+                  .replace("\\\\", "\\")
+                  .replace("\\n", "\n")
+                  .replace("\\r", "\r")
+                  .replace("\\t", "\t");
     }
 
     /**

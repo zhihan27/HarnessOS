@@ -3,6 +3,7 @@ package com.harness.core.service;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.hook.ChatContext;
 import com.harness.core.hook.ChatHookExecutor;
+import com.harness.core.tool.DagTaskToolProvider;
 import com.harness.core.tool.SubAgentToolProvider;
 import com.harness.core.tool.TodoWriteToolProvider;
 import org.slf4j.Logger;
@@ -46,6 +47,7 @@ public class AgentService {
         // 2. 设置工具上下文
         TodoWriteToolProvider.setSessionContext(tenantId, userId, sessionInfo.sessionId);
         SubAgentToolProvider.setSessionContext(tenantId, userId, sessionInfo.sessionId);
+        DagTaskToolProvider.setSessionContext(tenantId, userId, sessionInfo.sessionId);
 
         try {
             // 3. 创建跟踪任务
@@ -78,6 +80,7 @@ public class AgentService {
             // 6. 清理工具上下文
             TodoWriteToolProvider.clearSessionContext();
             SubAgentToolProvider.clearSessionContext();
+            DagTaskToolProvider.clearSessionContext();
         }
     }
 

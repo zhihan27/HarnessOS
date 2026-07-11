@@ -49,6 +49,16 @@ ai:
     max-tokens: 128000
     compression-threshold: 0.80
     preserved-messages: 4
+
+# Agent 自动启动配置
+agent:
+  auto-start: true        # 是否启用自动启动
+  worker:
+    count: 3              # Worker Agent 数量
+  default:
+    tenant: default-tenant
+    user: default-user
+
 # 日志配置
 logging:
   level:

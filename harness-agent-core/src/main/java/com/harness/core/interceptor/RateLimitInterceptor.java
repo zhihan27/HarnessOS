@@ -17,10 +17,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     // 每个 IP 每分钟最大请求次数
-    private static final int MAX_REQUESTS_PER_MINUTE = 20;
+    private static final int MAX_REQUESTS_PER_MINUTE = 60;
 
-    // 每个 IP 每秒最大请求次数
-    private static final int MAX_REQUESTS_PER_SECOND = 2;
+    // 每个 IP 每秒最大请求次数（提高限制，允许前端并发加载）
+    private static final int MAX_REQUESTS_PER_SECOND = 10;
 
     // IP 请求计数器（分钟级）
     private final Map<String, AtomicInteger> minuteCounter = new ConcurrentHashMap<>();
