@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import com.harness.core.context.AgentContext;
 import com.harness.core.entity.AgentInstance;
 import com.harness.core.entity.DagTask;
 import com.harness.core.mapper.AgentInstanceMapper;
@@ -121,11 +122,12 @@ public class WorkerAgentService {
 
         try {
             // 1. 设置 Agent 上下文（供 SubAgent 等使用）
-            AgentContext.setContext(agentId, task.getSessionId(), taskId);
+            AgentInstance agent = registryService.getAgent(agentId);
+            AgentContext.setContext(agentId, agent.getAgentType(), task.getSessionId(), taskId);
 
             // 2. 设置工具上下文
-            String tenantId = registryService.getAgent(agentId).getTenantId();
-            String userId = registryService.getAgent(agentId).getUserId();
+            String tenantId = agent.getTenantId();
+            String userId = agent.getUserId();
             TodoWriteToolProvider.setSessionContext(tenantId, userId, task.getSessionId());
             SubAgentToolProvider.setSessionContext(tenantId, userId, task.getSessionId());
             DagTaskToolProvider.setSessionContext(tenantId, userId, task.getSessionId());

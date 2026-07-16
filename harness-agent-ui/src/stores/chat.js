@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch, computed } from 'vue'
 import { post, get, del } from '@/api/request'
-import { API_ROUTES } from '@/api/config'
+import { API_ROUTES, BASE_URL } from '@/api/config'
 
 export const useChatStore = defineStore('chat', () => {
   // 从 localStorage 读取初始值
@@ -181,6 +181,193 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * SSE流式发送消息（推荐使用）
+   *
+   * @param {string} text - 用户消息
+   * @param {function} onUserMessage - 用户消息回调
+   * @param {function} onAiThinking - AI思考回调
+   * @param {function} onAiMessage - AI消息回调
+   * @param {function} onComplete - 完成回调
+   * @param {function} onError - 错误回调
+   * @returns {Promise<void>}
+   */
+  const sendMessageStream = async (text, callbacks = {}) => {
+    const {
+      onUserMessage,
+      onAiThinking,
+      onAiMessage,
+      onComplete,
+      onError
+    } = callbacks
+
+    loading.value = true
+
+    return new Promise((resolve, reject) => {
+      // 构建SSE URL（注意：EventSource需要完整路径）
+      const params = new URLSearchParams({
+        message: text
+      })
+
+      if (currentSessionId.value) {
+        params.append('sessionId', currentSessionId.value)
+      }
+
+      // 添加BASE_URL前缀
+      const url = `${BASE_URL}${API_ROUTES.CHAT_STREAM}?${params.toString()}`
+      console.log('创建SSE连接:', url)
+
+      const eventSource = new EventSource(url)
+
+      // 会话创建事件
+      eventSource.addEventListener('session_created', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('session_created事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          currentSessionId.value = data.sessionId
+          console.log('会话创建:', data.sessionId)
+        } catch (e) {
+          console.error('解析session_created事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // 用户消息事件
+      eventSource.addEventListener('user_message', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('user_message事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          console.log('用户消息:', data)
+          if (onUserMessage) {
+            onUserMessage(data)
+          }
+        } catch (e) {
+          console.error('解析user_message事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // AI思考事件
+      eventSource.addEventListener('ai_thinking', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('ai_thinking事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          console.log('AI思考:', data)
+          if (onAiThinking) {
+            onAiThinking(data)
+          }
+        } catch (e) {
+          console.error('解析ai_thinking事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // AI消息事件
+      eventSource.addEventListener('ai_message', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('ai_message事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          console.log('AI消息:', data)
+          if (onAiMessage) {
+            onAiMessage(data)
+          }
+        } catch (e) {
+          console.error('解析ai_message事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // 对话完成事件
+      eventSource.addEventListener('chat_complete', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('chat_complete事件无数据')
+            eventSource.close()
+            loading.value = false
+            resolve({ success: true })
+            return
+          }
+
+          const data = JSON.parse(event.data)
+          console.log('对话完成:', data)
+          eventSource.close()
+          loading.value = false
+
+          if (onComplete) {
+            onComplete(data)
+          }
+          resolve(data)
+        } catch (e) {
+          console.error('解析chat_complete事件失败:', e, '原始数据:', event.data)
+          eventSource.close()
+          loading.value = false
+          resolve({ success: true }) // 即使解析失败也算完成
+        }
+      })
+
+      // 错误事件
+      eventSource.addEventListener('error', (event) => {
+        try {
+          console.error('收到错误事件:', event)
+          if (event.data) {
+            const data = JSON.parse(event.data)
+            console.error('错误详情:', data)
+          }
+
+          eventSource.close()
+          loading.value = false
+
+          if (onError) {
+            onError({ message: event.data || '对话处理失败' })
+          }
+          reject(new Error(event.data || '对话处理失败'))
+        } catch (e) {
+          console.error('解析error事件失败:', e, '原始数据:', event.data)
+          eventSource.close()
+          loading.value = false
+          reject(e)
+        }
+      })
+
+      // SSE连接错误
+      eventSource.onerror = (error) => {
+        console.error('SSE连接错误:', error)
+        console.error('EventSource readyState:', eventSource.readyState)
+
+        // 只在连接真正失败时关闭
+        if (eventSource.readyState === EventSource.CLOSED) {
+          loading.value = false
+          if (onError) {
+            onError({ message: 'SSE连接已关闭' })
+          }
+          reject(new Error('SSE连接已关闭'))
+        } else if (eventSource.readyState === EventSource.CONNECTING) {
+          console.log('正在重连...')
+        } else {
+          eventSource.close()
+          loading.value = false
+          if (onError) {
+            onError({ message: 'SSE连接失败' })
+          }
+          reject(new Error('SSE连接失败'))
+        }
+      }
+
+      // 监听连接打开事件
+      eventSource.onopen = () => {
+        console.log('SSE连接已建立')
+      }
+    })
+  }
+
   return {
     modelType,
     currentSessionId,
@@ -197,6 +384,7 @@ export const useChatStore = defineStore('chat', () => {
     fetchRecentHistory,
     loadMoreHistory,
     deleteSession,
-    sendMessage
+    sendMessage,
+    sendMessageStream  // 导出新的SSE流式方法
   }
 })

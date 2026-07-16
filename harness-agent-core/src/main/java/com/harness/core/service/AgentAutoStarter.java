@@ -76,18 +76,7 @@ public class AgentAutoStarter {
 
         logger.info("开始自动注册 Agent，Worker 数量: {}", workerCount);
 
-        // 1. 注册 MainAgent
-        AgentInstance mainAgent = registryService.registerAgent(
-                "MAIN",
-                "MainAgent-01",
-                defaultTenant,
-                defaultUser,
-                1,  // MainAgent 只需要 1 个并发
-                List.of("DECOMPOSITION", "PLANNING")
-        );
-        logger.info("自动注册 MainAgent: {}", mainAgent.getAgentId());
-
-        // 2. 注册 WorkerAgent
+        // 1. 注册 WorkerAgent
         String[] workerNames = {"Worker-Alpha", "Worker-Beta", "Worker-Gamma", "Worker-Delta", "Worker-Epsilon"};
         String[][] workerCapabilities = {
                 {"CODING", "RESEARCH"},
@@ -103,7 +92,7 @@ public class AgentAutoStarter {
                     workerNames[i],
                     defaultTenant,
                     defaultUser,
-                    2,  // 每个 Worker 最多 2 个并发
+                    1,  // 每个 Worker 只执行 1 个任务，完成后才领取下一个
                     List.of(workerCapabilities[i])
             );
 

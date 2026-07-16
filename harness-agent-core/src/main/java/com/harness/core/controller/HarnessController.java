@@ -96,6 +96,7 @@ public class HarnessController {
 
     /**
      * 获取会话历史消息（支持分页）
+     * 注意：过滤掉 TOOL 类型消息，这些是内部执行细节，不展示在对话历史中
      */
     @GetMapping("history/{sessionId}")
     public List<MessageResponse> getHistory(
@@ -104,7 +105,10 @@ public class HarnessController {
             @RequestParam(required = false, defaultValue = "0") Integer offset,
             @RequestParam(required = false, defaultValue = "asc") String order) {
         List<ChatMessage> messages = chatSessionService.getHistory(sessionId, limit, offset, order);
+
+        // 过滤掉 TOOL 类型消息（内部执行细节，不应展示在对话历史中）
         return messages.stream()
+                .filter(m -> !"TOOL".equals(m.getMessageType()))
                 .map(m -> new MessageResponse(
                         m.getId(),
                         m.getMessageType(),

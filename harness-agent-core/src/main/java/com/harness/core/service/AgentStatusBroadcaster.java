@@ -132,6 +132,33 @@ public class AgentStatusBroadcaster {
     }
 
     /**
+     * 广播 Session 所有任务完成事件
+     * 用于通知 MainAgent 可以进行结果汇总
+     */
+    public void broadcastSessionCompleted(String sessionId, long successCount, long failedCount) {
+        SessionCompletionEvent event = new SessionCompletionEvent(
+                "SESSION_COMPLETED",
+                sessionId,
+                successCount,
+                failedCount
+        );
+        broadcastEvent(event);
+    }
+
+    /**
+     * 广播汇总完成事件
+     * 当 MainAgent 完成所有子任务的结果汇总后触发
+     */
+    public void broadcastSummaryCompleted(String sessionId, String summary) {
+        SummaryCompletedEvent event = new SummaryCompletedEvent(
+                "SUMMARY_COMPLETED",
+                sessionId,
+                summary
+        );
+        broadcastEvent(event);
+    }
+
+    /**
      * 广播事件到所有连接
      */
     private void broadcastEvent(Object event) {
@@ -221,5 +248,24 @@ public class AgentStatusBroadcaster {
             String agentId,
             String taskId,
             String info
+    ) {}
+
+    /**
+     * Session 完成事件（所有任务完成时触发）
+     */
+    public record SessionCompletionEvent(
+            String eventType,
+            String sessionId,
+            long successCount,
+            long failedCount
+    ) {}
+
+    /**
+     * 汇总完成事件（MainAgent 完成结果汇总时触发）
+     */
+    public record SummaryCompletedEvent(
+            String eventType,
+            String sessionId,
+            String summary
     ) {}
 }

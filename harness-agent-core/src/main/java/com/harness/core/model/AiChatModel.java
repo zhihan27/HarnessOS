@@ -1,13 +1,14 @@
-package com.harness.core.service;
+package com.harness.core.model;
 
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 
 /**
- * AI 聊天服务接口
+ * AI 聊天模型接口
+ * 定义 AI 对话的标准行为
  */
-public interface AiChatService {
+public interface AiChatModel {
 
     @SystemMessage("""
         你是智能助手，运行在 Windows 环境。

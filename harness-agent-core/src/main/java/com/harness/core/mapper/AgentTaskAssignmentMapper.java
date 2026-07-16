@@ -47,4 +47,10 @@ public interface AgentTaskAssignmentMapper extends BaseMapper<AgentTaskAssignmen
      */
     @Select("SELECT COUNT(*) FROM agent_task_assignments WHERE agent_id = #{agentId}")
     int countByAgent(@Param("agentId") String agentId);
+
+    /**
+     * 查询 session 的所有分配记录
+     */
+    @Select("SELECT * FROM agent_task_assignments WHERE session_id = #{sessionId}")
+    List<AgentTaskAssignment> findBySessionId(@Param("sessionId") String sessionId);
 }

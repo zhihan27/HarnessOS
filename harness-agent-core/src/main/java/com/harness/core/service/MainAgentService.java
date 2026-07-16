@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harness.core.entity.AgentInstance;
 import com.harness.core.entity.DagTask;
 import com.harness.core.mapper.AgentInstanceMapper;
+import com.harness.core.model.AiChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -74,8 +75,8 @@ public class MainAgentService {
         try {
             // 2. 调用 AI 进行任务拆解
             String decompositionPrompt = buildDecompositionPrompt(taskDescription);
-            AiChatService aiService = aiServiceFactory.getService("openai", sessionId);
-            String aiResponse = aiService.chat(sessionId, decompositionPrompt);
+            AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+            String aiResponse = aiModel.chat(sessionId, decompositionPrompt);
 
             // 3. 解析 AI 返回的任务规格
             List<TaskCreationSpec> taskSpecs = parseTaskSpecs(aiResponse);
@@ -135,30 +136,87 @@ public class MainAgentService {
      */
     private String buildDecompositionPrompt(String taskDescription) {
         return """
-            请将以下复杂任务拆解为多个可独立执行的原子任务。
+            你是任务规划专家。请将以下复杂任务拆解为多个可独立执行的原子子任务。
+
+            # 核心原则（重要！）
+
+            ## 主Agent职责
+            - **只做问答、分析、规划、决策**
+            - **不执行任何文件操作、代码执行、系统操作**
+            - 可以：回答问题、分析需求、设计方案、编写文档、提供建议
+
+            ## 子Agent职责（必须拆解出去）
+            - **文件操作**：创建、读取、修改、删除文件/文件夹
+            - **代码执行**：运行代码、编译程序、执行测试
+            - **系统操作**：安装依赖、配置环境、执行bash命令
+            - **数据处理**：数据库操作、API调用、数据转换
+
+            # 拆解规则
+
+            1. **识别操作类型**：
+               - 如果任务涉及文件读写、代码执行、bash命令 → 必须拆解为子任务
+               - 如果只是问答、分析、规划 → 可以由主Agent直接回答
+
+            2. **拆解粒度**：
+               - 每个子任务应该是可以独立完成的最小单元
+               - 明确任务之间的依赖关系（哪些任务必须先完成）
+               - 按执行顺序排列任务
+
+            3. **任务类型标记**：
+               - FILE_OPERATION: 文件操作（创建/修改/删除文件）
+               - CODE_EXECUTION: 代码执行（运行程序/测试）
+               - SYSTEM_OPERATION: 系统操作（安装依赖/配置环境）
+               - DATA_PROCESSING: 数据处理（数据库/API操作）
+               - ANALYSIS: 分析任务（仅问答/分析，不需要文件操作）
+
+            # 当前任务
 
             复杂任务：%s
 
-            拆解要求：
-            1. 每个子任务应该是可以独立完成的最小单元
-            2. 明确任务之间的依赖关系（哪些任务必须先完成）
-            3. 按执行顺序排列任务
-            4. 使用以下 JSON 格式返回：
-               {
-                 "tasks": [
-                   {
-                     "name": "task-name",
-                     "subject": "简要标题",
-                     "description": "详细描述",
-                     "blockedBy": ["前置任务名称"]
-                   }
-                 ]
-               }
+            # 输出格式
 
-            注意：
-            - 第一个任务不应有依赖
-            - blockedBy 中的任务名称应与前面任务的 name 对应
-            - 请直接返回 JSON，不要添加其他内容
+            使用以下 JSON 格式返回：
+            {
+              "mainResponse": "主Agent的直接回答（仅问答/分析任务）",
+              "needSubTasks": true/false,
+              "tasks": [
+                {
+                  "name": "task-name",
+                  "subject": "简要标题",
+                  "description": "详细描述（包含具体要执行的操作）",
+                  "taskType": "FILE_OPERATION|CODE_EXECUTION|SYSTEM_OPERATION|DATA_PROCESSING",
+                  "blockedBy": ["前置任务名称"]
+                }
+              ]
+            }
+
+            # 示例
+
+            输入: "帮我创建一个README.md文件"
+            输出:
+            {
+              "mainResponse": "好的，我将为您创建README.md文件。这需要文件操作，我会创建一个子任务来执行。",
+              "needSubTasks": true,
+              "tasks": [
+                {
+                  "name": "create-readme",
+                  "subject": "创建README.md文件",
+                  "description": "在项目根目录创建README.md文件，包含项目介绍、安装说明、使用方法",
+                  "taskType": "FILE_OPERATION",
+                  "blockedBy": []
+                }
+              ]
+            }
+
+            输入: "什么是微服务架构？"
+            输出:
+            {
+              "mainResponse": "微服务架构是一种...",
+              "needSubTasks": false,
+              "tasks": []
+            }
+
+            请直接返回 JSON，不要添加其他内容。
             """.formatted(taskDescription);
     }
 
@@ -171,16 +229,36 @@ public class MainAgentService {
             String jsonContent = extractJson(aiResponse);
 
             Map<String, Object> responseMap = objectMapper.readValue(jsonContent, Map.class);
+
+            // 检查是否需要子任务
+            Boolean needSubTasks = (Boolean) responseMap.get("needSubTasks");
+            if (needSubTasks == null || !needSubTasks) {
+                logger.info("任务无需拆解，主Agent可直接回答");
+                return new ArrayList<>();
+            }
+
             List<Map<String, Object>> tasksList = (List<Map<String, Object>>) responseMap.get("tasks");
+
+            if (tasksList == null || tasksList.isEmpty()) {
+                logger.info("任务列表为空");
+                return new ArrayList<>();
+            }
 
             List<TaskCreationSpec> specs = new ArrayList<>();
             for (Map<String, Object> taskMap : tasksList) {
                 String name = (String) taskMap.get("name");
                 String subject = (String) taskMap.get("subject");
                 String description = (String) taskMap.get("description");
+                String taskType = (String) taskMap.get("taskType");
                 List<String> blockedBy = (List<String>) taskMap.get("blockedBy");
 
-                specs.add(new TaskCreationSpec(name, subject, description, blockedBy != null ? blockedBy : new ArrayList<>()));
+                specs.add(new TaskCreationSpec(
+                    name,
+                    subject,
+                    description,
+                    taskType != null ? taskType : "GENERAL",
+                    blockedBy != null ? blockedBy : new ArrayList<>()
+                ));
             }
 
             return specs;
@@ -192,6 +270,7 @@ public class MainAgentService {
                     "default-task",
                     "执行任务",
                     aiResponse,
+                    "GENERAL",
                     new ArrayList<>()
             ));
         }
@@ -234,14 +313,33 @@ public class MainAgentService {
     /**
      * 任务创建规格
      */
-    public record TaskCreationSpec(String name, String subject, String description, List<String> blockedBy) {}
+    public record TaskCreationSpec(
+        String name,
+        String subject,
+        String description,
+        String taskType,  // FILE_OPERATION, CODE_EXECUTION, SYSTEM_OPERATION, DATA_PROCESSING, GENERAL
+        List<String> blockedBy
+    ) {}
 
     /**
      * 拆解结果
      */
-    public record DecompositionResult(List<DagTask> createdTasks, String aiResponse, String error) {
+    public record DecompositionResult(
+        List<DagTask> createdTasks,
+        String aiResponse,
+        String mainResponse,  // 主Agent的直接回答
+        String error
+    ) {
+        public DecompositionResult(List<DagTask> createdTasks, String aiResponse, String error) {
+            this(createdTasks, aiResponse, null, error);
+        }
+
         public boolean isSuccess() {
             return error == null && createdTasks != null;
+        }
+
+        public boolean hasSubTasks() {
+            return createdTasks != null && !createdTasks.isEmpty();
         }
     }
 }

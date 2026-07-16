@@ -3,7 +3,7 @@ package com.harness.core.memory;
 import com.harness.core.entity.ChatMemorySummary;
 import com.harness.core.mapper.ChatMemorySummaryMapper;
 import com.harness.core.mapper.ChatMessageMapper;
-import com.harness.core.service.AiChatService;
+import com.harness.core.model.AiChatModel;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;

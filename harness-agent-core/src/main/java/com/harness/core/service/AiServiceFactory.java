@@ -1,8 +1,10 @@
 package com.harness.core.service;
 
 import com.harness.core.memory.DatabaseChatMemoryStore;
+import com.harness.core.model.AiChatModel;
 import com.harness.core.tool.BashToolProvider;
 import com.harness.core.tool.DagTaskToolProvider;
+import com.harness.core.tool.FileToolProvider;
 import com.harness.core.tool.SubAgentToolProvider;
 import com.harness.core.tool.ToolProvider;
 import com.harness.core.tool.TodoWriteToolProvider;
@@ -32,6 +34,7 @@ public class AiServiceFactory {
     private final AnthropicChatModel anthropicChatModel;
     private final ToolProvider toolProvider;
     private final BashToolProvider bashToolProvider;
+    private final FileToolProvider fileToolProvider;
     private final TodoWriteToolProvider todoWriteToolProvider;
     private final SubAgentToolProvider subAgentToolProvider;
     private final DagTaskToolProvider dagTaskToolProvider;
@@ -40,13 +43,14 @@ public class AiServiceFactory {
     // 最大消息数量（用于MessageWindowChatMemory）
     private static final int MAX_MESSAGES = 100;
 
-    // AI服务单例（用于所有会话，memoryId动态传递）
-    private AiChatService sharedService;
+    // AI模型单例（用于所有会话，memoryId动态传递）
+    private AiChatModel sharedModel;
 
     public AiServiceFactory(OpenAiChatModel openaiChatModel,
                            AnthropicChatModel anthropicChatModel,
                            ToolProvider toolProvider,
                            BashToolProvider bashToolProvider,
+                           FileToolProvider fileToolProvider,
                            TodoWriteToolProvider todoWriteToolProvider,
                            SubAgentToolProvider subAgentToolProvider,
                            DagTaskToolProvider dagTaskToolProvider,
@@ -55,6 +59,7 @@ public class AiServiceFactory {
         this.anthropicChatModel = anthropicChatModel;
         this.toolProvider = toolProvider;
         this.bashToolProvider = bashToolProvider;
+        this.fileToolProvider = fileToolProvider;
         this.todoWriteToolProvider = todoWriteToolProvider;
         this.subAgentToolProvider = subAgentToolProvider;
         this.dagTaskToolProvider = dagTaskToolProvider;
@@ -62,36 +67,40 @@ public class AiServiceFactory {
 
         logger.info("初始化 AI 服务工厂，注册工具...");
 
-        // 初始化共享的AI服务实例（memoryId通过chat方法参数传递）
-        initSharedService();
+        // 初始化共享的AI模型实例（memoryId通过chat方法参数传递）
+        initSharedModel();
 
         logger.info("AI 服务工厂初始化完成，已注册 {} 个工具", getToolCount());
     }
 
     /**
-     * 初始化共享的AI服务实例
+     * 初始化共享的AI模型实例
      * ChatMemoryProvider根据memoryId动态创建/获取会话记忆
      */
-    private void initSharedService() {
+    private void initSharedModel() {
         // 获取原始对象（去除 CGLIB 代理）
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawFileToolProvider = AopProxyUtils.getSingletonTarget(fileToolProvider);
         Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
         Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
         Object rawDagTaskToolProvider = AopProxyUtils.getSingletonTarget(dagTaskToolProvider);
 
         if (rawToolProvider == null) rawToolProvider = toolProvider;
         if (rawBashToolProvider == null) rawBashToolProvider = bashToolProvider;
+        if (rawFileToolProvider == null) rawFileToolProvider = fileToolProvider;
         if (rawTodoWriteToolProvider == null) rawTodoWriteToolProvider = todoWriteToolProvider;
         if (rawSubAgentToolProvider == null) rawSubAgentToolProvider = subAgentToolProvider;
         if (rawDagTaskToolProvider == null) rawDagTaskToolProvider = dagTaskToolProvider;
 
-        // 构建共享的AI服务实例，使用ChatMemoryProvider实现多会话隔离
-        // memoryId通过AiChatService.chat(@MemoryId sessionId, message)传递
-        this.sharedService = AiServices.builder(AiChatService.class)
+        // 构建共享的AI模型实例，使用ChatMemoryProvider实现多会话隔离
+        // memoryId通过AiChatModel.chat(@MemoryId sessionId, message)传递
+        // 使用 OpenAI 兼容模式（阿里云 DashScope）
+        this.sharedModel = AiServices.builder(AiChatModel.class)
                 .chatModel(openaiChatModel)
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
+                .tools(rawFileToolProvider)
                 .tools(rawTodoWriteToolProvider)
                 .tools(rawSubAgentToolProvider)
                 .tools(rawDagTaskToolProvider)
@@ -102,44 +111,47 @@ public class AiServiceFactory {
                         .build())
                 .build();
 
-        logger.debug("共享AI服务实例初始化完成");
+        logger.debug("共享AI模型实例初始化完成");
     }
 
     /**
-     * 根据模型类型获取对应的 AI 服务
-     * 返回共享的服务实例，memoryId通过chat方法参数传递
+     * 根据模型类型获取对应的 AI 模型
+     * 返回共享的模型实例，memoryId通过chat方法参数传递
      *
      * @param modelType 模型类型 (openai/anthropic) - 当前仅使用openai
      * @param sessionId 会话ID（仅用于日志，实际通过@MemoryId传递）
-     * @return AI 聊天服务
+     * @return AI 聊天模型
      */
-    public AiChatService getService(String modelType, String sessionId) {
-        logger.debug("获取AI服务: modelType={}, sessionId={}", modelType, sessionId);
-        // 返回共享服务，memoryId在调用chat时通过@MemoryId传递
-        return sharedService;
+    public AiChatModel getModel(String modelType, String sessionId) {
+        logger.debug("获取AI模型: modelType={}, sessionId={}", modelType, sessionId);
+        // 返回共享模型，memoryId在调用chat时通过@MemoryId传递
+        return sharedModel;
     }
 
     /**
-     * 获取默认的 AI 服务（无会话隔离）
+     * 获取默认的 AI 模型（无会话隔离）
      * 用于简单的独立任务执行
      */
-    public AiChatService getDefaultService(String modelType) {
+    public AiChatModel getDefaultModel(String modelType) {
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawFileToolProvider = AopProxyUtils.getSingletonTarget(fileToolProvider);
         Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
         Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
         Object rawDagTaskToolProvider = AopProxyUtils.getSingletonTarget(dagTaskToolProvider);
 
         if (rawToolProvider == null) rawToolProvider = toolProvider;
         if (rawBashToolProvider == null) rawBashToolProvider = bashToolProvider;
+        if (rawFileToolProvider == null) rawFileToolProvider = fileToolProvider;
         if (rawTodoWriteToolProvider == null) rawTodoWriteToolProvider = todoWriteToolProvider;
         if (rawSubAgentToolProvider == null) rawSubAgentToolProvider = subAgentToolProvider;
         if (rawDagTaskToolProvider == null) rawDagTaskToolProvider = dagTaskToolProvider;
 
-        return AiServices.builder(AiChatService.class)
+        return AiServices.builder(AiChatModel.class)
                 .chatModel(openaiChatModel)
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
+                .tools(rawFileToolProvider)
                 .tools(rawTodoWriteToolProvider)
                 .tools(rawSubAgentToolProvider)
                 .tools(rawDagTaskToolProvider)
@@ -162,6 +174,7 @@ public class AiServiceFactory {
 
         Object rawToolProvider = AopProxyUtils.getSingletonTarget(toolProvider);
         Object rawBashToolProvider = AopProxyUtils.getSingletonTarget(bashToolProvider);
+        Object rawFileToolProvider = AopProxyUtils.getSingletonTarget(fileToolProvider);
         Object rawTodoWriteToolProvider = AopProxyUtils.getSingletonTarget(todoWriteToolProvider);
         Object rawSubAgentToolProvider = AopProxyUtils.getSingletonTarget(subAgentToolProvider);
         Object rawDagTaskToolProvider = AopProxyUtils.getSingletonTarget(dagTaskToolProvider);
@@ -170,6 +183,8 @@ public class AiServiceFactory {
             rawToolProvider.getClass() : toolProvider.getClass();
         Class<?> bashToolProviderClass = rawBashToolProvider != null ?
             rawBashToolProvider.getClass() : bashToolProvider.getClass();
+        Class<?> fileToolProviderClass = rawFileToolProvider != null ?
+            rawFileToolProvider.getClass() : fileToolProvider.getClass();
         Class<?> todoWriteToolProviderClass = rawTodoWriteToolProvider != null ?
             rawTodoWriteToolProvider.getClass() : todoWriteToolProvider.getClass();
         Class<?> subAgentToolProviderClass = rawSubAgentToolProvider != null ?
@@ -181,6 +196,9 @@ public class AiServiceFactory {
             if (method.isAnnotationPresent(Tool.class)) count++;
         }
         for (Method method : bashToolProviderClass.getDeclaredMethods()) {
+            if (method.isAnnotationPresent(Tool.class)) count++;
+        }
+        for (Method method : fileToolProviderClass.getDeclaredMethods()) {
             if (method.isAnnotationPresent(Tool.class)) count++;
         }
         for (Method method : todoWriteToolProviderClass.getDeclaredMethods()) {

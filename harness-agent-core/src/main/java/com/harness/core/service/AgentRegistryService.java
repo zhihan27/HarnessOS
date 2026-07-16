@@ -1,11 +1,13 @@
 package com.harness.core.service;
 
+import com.harness.core.context.AgentContext;
 import com.harness.core.entity.AgentInstance;
 import com.harness.core.entity.AgentTaskAssignment;
 import com.harness.core.entity.DagTask;
 import com.harness.core.mapper.AgentInstanceMapper;
 import com.harness.core.mapper.AgentTaskAssignmentMapper;
 import com.harness.core.mapper.DagTaskMapper;
+import com.harness.core.model.AiChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -35,6 +37,7 @@ public class AgentRegistryService {
     private final DagTaskMapper taskMapper;
     private final DagTaskService taskService;
     private final AgentStatusBroadcaster statusBroadcaster;
+    private final AiServiceFactory aiServiceFactory;
 
     // 内存中活跃的 Agent 缓存（用于快速查询）
     private final Map<String, AgentInstance> activeAgents = new ConcurrentHashMap<>();
@@ -43,12 +46,14 @@ public class AgentRegistryService {
                                 AgentTaskAssignmentMapper assignmentMapper,
                                 DagTaskMapper taskMapper,
                                 DagTaskService taskService,
-                                @Lazy AgentStatusBroadcaster statusBroadcaster) {
+                                @Lazy AgentStatusBroadcaster statusBroadcaster,
+                                @Lazy AiServiceFactory aiServiceFactory) {
         this.agentMapper = agentMapper;
         this.assignmentMapper = assignmentMapper;
         this.taskMapper = taskMapper;
         this.taskService = taskService;
         this.statusBroadcaster = statusBroadcaster;
+        this.aiServiceFactory = aiServiceFactory;
     }
 
     // ==================== Agent 注册与注销 ====================
@@ -265,12 +270,29 @@ public class AgentRegistryService {
 
     /**
      * 释放任务（完成或失败后）
+     * 同时更新 DagTask 状态并通知相关方
      */
     @Transactional
     public void releaseTask(String agentId, String taskId, boolean success, String result) {
         AgentInstance agent = getAgent(agentId);
         if (agent == null) return;
 
+        // 1. 更新 DagTask 状态（如果任务尚未被标记为完成）
+        DagTask task = taskMapper.selectById(taskId);
+        if (task != null && !"completed".equals(task.getStatus()) && !"failed".equals(task.getStatus())) {
+            if (success) {
+                task.setStatus("completed");
+                task.setResult(result);
+            } else {
+                task.setStatus("failed");
+                task.setError(result);
+            }
+            task.setCompletedAt(LocalDateTime.now());
+            taskMapper.updateById(task);
+            logger.info("任务状态已更新: taskId={}, status={}", taskId, success ? "completed" : "failed");
+        }
+
+        // 2. 更新 Agent 负载
         int newLoad = Math.max(0, agent.getCurrentLoad() - 1);
         String newStatus = newLoad == 0 ? "IDLE" : "WORKING";
 
@@ -281,11 +303,17 @@ public class AgentRegistryService {
         agentMapper.updateById(agent);
         activeAgents.put(agentId, agent);
 
-        // 更新分配记录
+        // 3. 更新分配记录
         assignmentMapper.releaseAssignment(agentId, taskId);
 
-        // 广播任务完成事件
-        statusBroadcaster.broadcastTaskCompleted(agentId, taskId, success, result);
+        // 4. 通知 MainAgent 任务完成并广播状态变更
+        if (task != null && task.getSessionId() != null) {
+            notifyMainAgentTaskCompleted(task, success, result, agentId);
+        } else {
+            // 没有关联 session 时直接广播
+            statusBroadcaster.broadcastTaskCompleted(agentId, taskId, success, result);
+        }
+
         // 广播 Agent 状态变更
         AgentInstance updatedAgent = getAgent(agentId);
         if (updatedAgent != null) {
@@ -293,6 +321,108 @@ public class AgentRegistryService {
         }
 
         logger.info("释放任务: agentId={}, taskId={}, success={}, newLoad={}", agentId, taskId, success, newLoad);
+    }
+
+    /**
+     * 通知 MainAgent 子任务已完成
+     * 通过会话机制让 MainAgent 感知任务进度
+     */
+    private void notifyMainAgentTaskCompleted(DagTask task, boolean success, String result, String workerAgentId) {
+        String sessionId = task.getSessionId();
+
+        // 广播任务完成事件（前端和 MainAgent 可通过 SSE 接收）
+        statusBroadcaster.broadcastTaskCompleted(workerAgentId, task.getTaskId(), success, result);
+
+        // 检查该 session 是否所有任务都已完成，如果是则触发汇总
+        checkAndNotifySessionCompletion(sessionId);
+
+        logger.debug("已通知任务完成: taskId={}, sessionId={}, success={}", task.getTaskId(), sessionId, success);
+    }
+
+    /**
+     * 检查 session 的所有任务是否完成，触发汇总通知
+     */
+    private void checkAndNotifySessionCompletion(String sessionId) {
+        List<DagTask> sessionTasks = taskService.getTasksBySession(sessionId);
+        if (sessionTasks.isEmpty()) return;
+
+        boolean allCompleted = sessionTasks.stream()
+                .allMatch(t -> "completed".equals(t.getStatus()) || "failed".equals(t.getStatus()));
+
+        if (allCompleted) {
+            long successCount = sessionTasks.stream().filter(t -> "completed".equals(t.getStatus())).count();
+            long failedCount = sessionTasks.stream().filter(t -> "failed".equals(t.getStatus())).count();
+
+            // 广播整个 session 完成事件（前端可据此更新看板）
+            statusBroadcaster.broadcastSessionCompleted(sessionId, successCount, failedCount);
+
+            logger.info("Session 所有任务完成: sessionId={}, success={}, failed={}", sessionId, successCount, failedCount);
+
+            // 触发 MainAgent 进行结果汇总
+            triggerMainAgentSummary(sessionId, sessionTasks);
+        }
+    }
+
+    /**
+     * 触发 MainAgent 进行结果汇总
+     * 当所有子任务完成后，调用对话 LLM 生成总结
+     */
+    private void triggerMainAgentSummary(String sessionId, List<DagTask> completedTasks) {
+        logger.info("触发任务汇总: sessionId={}, tasks={}", sessionId, completedTasks.size());
+
+        try {
+            // 构造汇总提示
+            String summaryPrompt = buildSummaryPrompt(completedTasks);
+
+            // 直接调用对话 LLM 生成总结（不需要单独的 MainAgent）
+            AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+            String summary = aiModel.chat(sessionId, summaryPrompt);
+
+            logger.info("任务汇总完成: sessionId={}, summaryLength={}", sessionId, summary.length());
+
+            // 广播汇总完成事件（推送给前端显示）
+            statusBroadcaster.broadcastSummaryCompleted(sessionId, summary);
+
+        } catch (Exception e) {
+            logger.error("任务汇总失败: sessionId={}, error={}", sessionId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 构造汇总提示
+     */
+    private String buildSummaryPrompt(List<DagTask> completedTasks) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("所有子任务已完成，请根据以下执行结果进行汇总：\n\n");
+
+        prompt.append("## 任务执行结果\n\n");
+        for (DagTask task : completedTasks) {
+            prompt.append("### ").append(task.getSubject()).append("\n");
+            prompt.append("- 状态: ").append("completed".equals(task.getStatus()) ? "✅ 成功" : "❌ 失败").append("\n");
+            if (task.getResult() != null && !task.getResult().isEmpty()) {
+                prompt.append("- 结果: ").append(truncateText(task.getResult(), 300)).append("\n");
+            }
+            if (task.getError() != null && !task.getError().isEmpty()) {
+                prompt.append("- 错误: ").append(task.getError()).append("\n");
+            }
+            prompt.append("\n");
+        }
+
+        prompt.append("## 汇总要求\n");
+        prompt.append("1. 总结整体任务完成情况\n");
+        prompt.append("2. 汇总关键结果和发现\n");
+        prompt.append("3. 如有失败任务，说明影响和建议\n");
+        prompt.append("4. 给出简洁的结论（不超过200字）\n");
+
+        return prompt.toString();
+    }
+
+    /**
+     * 截断文本
+     */
+    private String truncateText(String text, int maxLength) {
+        if (text == null) return "";
+        return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
     }
 
     // ==================== MainAgent 任务创建记录 ====================

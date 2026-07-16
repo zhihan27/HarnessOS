@@ -4,6 +4,7 @@ export const BASE_URL = '/api'  // 使用 Vite 代理路径
 // API 路径定义
 export const API_ROUTES = {
   CHAT: '/agent/chat',
+  CHAT_STREAM: '/chat/stream',          // SSE流式对话接口
   SESSIONS: '/agent/sessions',          // 会话列表
   SESSION_DETAIL: '/agent/sessions',    // 会话详情 (需要拼接sessionId)
   HISTORY: '/agent/history',            // 历史消息 (需要拼接sessionId)

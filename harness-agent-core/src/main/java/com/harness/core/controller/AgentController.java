@@ -16,7 +16,7 @@ import java.util.List;
  * - Agent 注册/停止
  * - Agent 状态查询
  * - MainAgent 任务拆解
- * - SSE 状态流
+ * - SSE 状态流（Agent 状态 + 工具进度）
  *
  * 注意：使用 /api/agent-mgr 路径，避免与 HarnessController 的 /api/agent/sessions 路由冲突
  */
@@ -28,15 +28,18 @@ public class AgentController {
     private final MainAgentService mainAgentService;
     private final WorkerAgentService workerAgentService;
     private final AgentStatusBroadcaster broadcaster;
+    private final ToolProgressBroadcaster toolProgressBroadcaster;
 
     public AgentController(AgentRegistryService registryService,
                            MainAgentService mainAgentService,
                            WorkerAgentService workerAgentService,
-                           AgentStatusBroadcaster broadcaster) {
+                           AgentStatusBroadcaster broadcaster,
+                           ToolProgressBroadcaster toolProgressBroadcaster) {
         this.registryService = registryService;
         this.mainAgentService = mainAgentService;
         this.workerAgentService = workerAgentService;
         this.broadcaster = broadcaster;
+        this.toolProgressBroadcaster = toolProgressBroadcaster;
     }
 
     // ==================== Agent 注册与管理 ====================
@@ -168,6 +171,25 @@ public class AgentController {
     @GetMapping("status/connections")
     public ConnectionCountResponse getConnectionCount() {
         return new ConnectionCountResponse(broadcaster.getConnectionCount());
+    }
+
+    // ==================== 工具执行进度 SSE ====================
+
+    /**
+     * SSE 连接获取实时工具执行进度
+     * 推送工具调用开始、完成、错误等事件
+     */
+    @GetMapping(value = "tools/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamToolProgress() {
+        return toolProgressBroadcaster.createConnection();
+    }
+
+    /**
+     * 获取工具进度 SSE 连接数
+     */
+    @GetMapping("tools/connections")
+    public ConnectionCountResponse getToolProgressConnectionCount() {
+        return new ConnectionCountResponse(toolProgressBroadcaster.getConnectionCount());
     }
 
     // ==================== Worker 控制 ====================

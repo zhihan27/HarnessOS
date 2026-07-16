@@ -1,5 +1,6 @@
-package com.harness.core.tool;
+package com.harness.core.executor;
 
+import com.harness.core.context.AgentContext;
 import com.harness.core.security.CommandSemanticAnalyzer;
 import com.harness.core.security.SecurityCheckResult;
 import com.harness.core.security.SecurityInterceptor;
@@ -11,7 +12,11 @@ import org.springframework.stereotype.Component;
  * 安全 Bash 执行器代理
  * 双层拦截机制：
  * - 高危操作：硬拦截，绝对拒绝（使用 SecurityRules 统一规则）
- * - 中危操作：软询问，用户确认后可执行
+ * - 中危操作：软询问，用户确认后可执行（主Agent）或自动通过（子Agent）
+ *
+ * 安全策略差异化：
+ * - MAIN Agent：完整的安全检查（高危硬拦截 + 中危软询问）
+ * - WORKER Agent：宽松策略（仅高危硬拦截，跳过中危软询问）
  */
 @Component
 public class SecureBashExecutor implements BashExecutor {
@@ -41,9 +46,70 @@ public class SecureBashExecutor implements BashExecutor {
             return executeWithHighRiskCheck(actualCommand);
         }
 
+        // 判断是否在子Agent上下文中
+        boolean isWorkerAgent = isWorkerAgentContext();
+
+        if (isWorkerAgent) {
+            logger.info("[Worker Agent 上下文] 应用宽松安全策略");
+            return executeForWorkerAgent(command);
+        } else {
+            logger.info("[Main Agent 上下文] 应用完整安全策略");
+            return executeForMainAgent(command);
+        }
+    }
+
+    /**
+     * 主Agent执行（完整安全策略）
+     * - 高危：硬拦截
+     * - 中危：软询问
+     */
+    private String executeForMainAgent(String command) {
         // 第一层：静态规则检查（使用 SecurityInterceptor）
         SecurityCheckResult result = interceptor.check(command, "bash");
-        return handleCheckResult(result, command);
+        return handleCheckResult(result, command, false);
+    }
+
+    /**
+     * 子Agent执行（宽松安全策略）
+     * - 高危：硬拦截（保留）
+     * - 中危：自动通过（跳过软询问）
+     */
+    private String executeForWorkerAgent(String command) {
+        logger.info("[Worker Agent] 准备执行命令: {}", command);
+
+        // 仅检查高危操作
+        if (interceptor.isHighRisk(command)) {
+            logger.warn("[Worker-高危拦截] 命令: {}, Agent: {}", command, AgentContext.getCurrentAgent());
+            return formatBlockedResult(SecurityCheckResult.blocked(
+                "高危操作即使在子Agent中也被禁止"
+            ));
+        }
+
+        // 语义分析（仅检查高危）
+        if (semanticAnalyzer.isDestructiveCommand(command)) {
+            if (interceptor.isHighRisk(command)) {
+                logger.warn("[Worker-语义高危] 拒绝执行: {}, Agent: {}", command, AgentContext.getCurrentAgent());
+                return formatBlockedResult(SecurityCheckResult.blocked(
+                    "语义分析发现高危意图，系统拒绝执行"
+                ));
+            }
+            // 中危语义，在子Agent中自动通过
+            logger.info("[Worker-中危自动通过] 命令: {}, Agent: {}, Task: {}",
+                command, AgentContext.getCurrentAgent(), AgentContext.getCurrentTask());
+        }
+
+        // 直接执行
+        logger.info("[Worker-直接执行] Agent={}, Task={}, Command={}",
+            AgentContext.getCurrentAgent(), AgentContext.getCurrentTask(), command);
+        return realExecutor.execute(command);
+    }
+
+    /**
+     * 判断是否在子Agent上下文中
+     */
+    private boolean isWorkerAgentContext() {
+        // 使用AgentContext中的可靠判断方法
+        return AgentContext.isWorkerAgent();
     }
 
     /**
@@ -87,9 +153,9 @@ public class SecureBashExecutor implements BashExecutor {
     }
 
     /**
-     * 处理检查结果
+     * 处理检查结果（主Agent使用）
      */
-    private String handleCheckResult(SecurityCheckResult result, String command) {
+    private String handleCheckResult(SecurityCheckResult result, String command, boolean skipSoftAsk) {
         switch (result.level()) {
             case BLOCKED:
                 // 高危：硬拦截，绝对拒绝
@@ -97,23 +163,29 @@ public class SecureBashExecutor implements BashExecutor {
                 return formatBlockedResult(result);
 
             case NEED_CONFIRM:
-                // 中危：软询问，返回确认提示
-                logger.info("[中危-软询问] 需用户确认: {}", command);
-                return formatNeedConfirmResult(result, command);
+                if (skipSoftAsk) {
+                    // 跳过软询问，直接执行
+                    logger.info("[跳过软询问] 直接执行: {}", command);
+                    return realExecutor.execute(command);
+                } else {
+                    // 中危：软询问，返回确认提示
+                    logger.info("[中危-软询问] 需用户确认: {}", command);
+                    return formatNeedConfirmResult(result, command);
+                }
 
             case SAFE:
                 // 第一层通过，进入第二层语义分析
-                return performSemanticAnalysis(command);
+                return performSemanticAnalysis(command, skipSoftAsk);
 
             default:
-                return performSemanticAnalysis(command);
+                return performSemanticAnalysis(command, skipSoftAsk);
         }
     }
 
     /**
      * 第二层：语义分析
      */
-    private String performSemanticAnalysis(String command) {
+    private String performSemanticAnalysis(String command, boolean skipSoftAsk) {
         if (semanticAnalyzer.isDestructiveCommand(command)) {
             logger.warn("[语义分析] 发现危险意图: {}", command);
 
@@ -123,10 +195,15 @@ public class SecureBashExecutor implements BashExecutor {
                     "语义分析发现高危意图，系统拒绝执行"
                 ));
             } else {
-                return formatNeedConfirmResult(
-                    SecurityCheckResult.needConfirm("语义分析发现敏感操作", command),
-                    command
-                );
+                if (skipSoftAsk) {
+                    logger.info("[跳过软询问] 中危语义自动通过: {}", command);
+                    return realExecutor.execute(command);
+                } else {
+                    return formatNeedConfirmResult(
+                        SecurityCheckResult.needConfirm("语义分析发现敏感操作", command),
+                        command
+                    );
+                }
             }
         }
 

@@ -101,33 +101,96 @@ const sendMessage = async () => {
   const text = inputMessage.value.trim()
   if (!text || loading.value) return
 
+  // 清空输入框
+  inputMessage.value = ''
+
+  // 添加用户消息（立即显示）
   chatStore.addMessage({
     role: 'user',
     content: text,
     timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   })
-  inputMessage.value = ''
+  await scrollToBottom(false)
+
+  // 添加AI思考提示
+  const thinkingMsgId = Date.now()
+  chatStore.addMessage({
+    id: thinkingMsgId,
+    role: 'assistant',
+    content: '💭 AI正在思考...',
+    timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+    isThinking: true
+  })
   await scrollToBottom(false)
 
   try {
-    const reply = await chatStore.sendMessage(text)
-    chatStore.addMessage({
-      role: 'assistant',
-      content: reply,
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    // 使用SSE流式接口
+    await chatStore.sendMessageStream(text, {
+      onUserMessage: (data) => {
+        console.log('用户消息已发送:', data)
+      },
+
+      onAiThinking: (data) => {
+        console.log('AI思考中:', data.message)
+        // 可以更新思考提示的文本
+        const thinkingMsg = chatStore.messages.find(m => m.id === thinkingMsgId)
+        if (thinkingMsg) {
+          thinkingMsg.content = `💭 ${data.message}`
+        }
+      },
+
+      onAiMessage: (data) => {
+        // 移除思考提示
+        const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
+        if (index !== -1) {
+          chatStore.messages.splice(index, 1)
+        }
+
+        // 添加AI回复
+        chatStore.addMessage({
+          role: 'assistant',
+          content: data.content,
+          timestamp: new Date(data.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        })
+        scrollToBottom(false)
+      },
+
+      onComplete: async (data) => {
+        console.log('对话完成:', data)
+        await taskStore.refreshAll(currentSessionId.value)
+      },
+
+      onError: (data) => {
+        // 移除思考提示
+        const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
+        if (index !== -1) {
+          chatStore.messages.splice(index, 1)
+        }
+
+        // 添加错误消息
+        chatStore.addMessage({
+          role: 'error',
+          content: data.message || '对话处理失败',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        })
+        scrollToBottom(false)
+      }
     })
-    await taskStore.refreshAll(currentSessionId.value)
   } catch (error) {
-    const errorMsg = error.message.includes('超时')
-      ? '请求超时，后端响应时间过长'
-      : '核心服务连接异常，请检查后端状态'
+    // 移除思考提示
+    const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
+    if (index !== -1) {
+      chatStore.messages.splice(index, 1)
+    }
+
+    // 添加错误消息
+    const errorMsg = error.message || '对话处理失败'
     chatStore.addMessage({
       role: 'error',
       content: errorMsg,
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     })
-  } finally {
-    await scrollToBottom(false)
+    scrollToBottom(false)
   }
 }
 

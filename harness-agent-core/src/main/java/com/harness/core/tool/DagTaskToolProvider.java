@@ -4,6 +4,7 @@ import com.harness.core.entity.DagTask;
 import com.harness.core.service.DagDependencyResolver;
 import com.harness.core.service.DagTaskService;
 import com.harness.core.service.TaskDispatcher;
+import com.harness.core.service.ToolProgressBroadcaster;
 import dev.langchain4j.agent.tool.Tool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
  * 1. 任务编排：创建任务、设置依赖关系
  * 2. 异步执行：启动 Task Team 后台执行任务
  * 3. 状态追踪：查询任务执行进度
+ * 4. SSE 进度推送：实时推送任务执行进度
  *
  * 与 SubAgent 的区别：
  * - SubAgent：同步阻塞，独立上下文，用完即丢
@@ -33,16 +35,19 @@ public class DagTaskToolProvider {
     private final DagTaskService taskService;
     private final DagDependencyResolver dependencyResolver;
     private final TaskDispatcher taskDispatcher;
+    private final ToolProgressBroadcaster progressBroadcaster;
 
     // 当前会话上下文（由 AgentService 注入）
     private static final ThreadLocal<SessionContext> currentSession = new ThreadLocal<>();
 
     public DagTaskToolProvider(DagTaskService taskService,
                                 DagDependencyResolver dependencyResolver,
-                                @Lazy TaskDispatcher taskDispatcher) {
+                                @Lazy TaskDispatcher taskDispatcher,
+                                ToolProgressBroadcaster progressBroadcaster) {
         this.taskService = taskService;
         this.dependencyResolver = dependencyResolver;
         this.taskDispatcher = taskDispatcher;
+        this.progressBroadcaster = progressBroadcaster;
     }
 
     /**
@@ -87,12 +92,15 @@ public class DagTaskToolProvider {
                "可使用 getTaskTeamStatus 查看进度。";
     }
 
-    @Tool("创建任务并入库等待执行。用于简单场景，创建单个任务后 WorkerAgent 会自动领取执行。")
+    @Tool("创建任务并等待执行完成。创建任务后会等待 WorkerAgent 执行完成，期间可通过 SSE 看到进度。")
     public String createAndRun(String subject, String description) {
         try {
             SessionContext context = getSessionContext();
 
-            // 创建任务（WorkerAgent 会自动领取执行）
+            // 推送：任务创建
+            progressBroadcaster.broadcastTaskCreated(context.sessionId, "pending", subject);
+
+            // 创建任务
             DagTask task = taskService.createTask(
                     subject,
                     description,
@@ -101,18 +109,216 @@ public class DagTaskToolProvider {
                     context.sessionId
             );
 
-            return String.format(
-                    "✅ 任务已创建并入库！\n" +
-                    "任务ID: %s\n" +
-                    "标题: %s\n\n" +
-                    "WorkerAgent 正在后台轮询，会自动领取 pending 状态的任务执行。",
-                    task.getTaskId(), subject
+            logger.info("任务已创建: taskId={}, subject={}, sessionId={}", task.getTaskId(), subject, context.sessionId);
+
+            // 推送：任务已入库，等待执行
+            progressBroadcaster.broadcastTaskProgress(
+                    context.sessionId, task.getTaskId(), subject, 5, "任务已入库，等待 WorkerAgent 执行"
             );
+
+            // 等待任务完成（带超时）
+            boolean completed = waitForTaskCompletion(task.getTaskId(), context.sessionId, subject, 300000); // 5分钟超时
+
+            if (completed) {
+                // 重新获取任务结果
+                DagTask completedTask = taskService.getTask(task.getTaskId());
+
+                // 推送：任务完成
+                progressBroadcaster.broadcastTaskCompleted(
+                        context.sessionId, task.getTaskId(), subject, completedTask.getResult()
+                );
+
+                return String.format(
+                        "✅ 任务执行完成！\n" +
+                        "任务ID: %s\n" +
+                        "标题: %s\n" +
+                        "结果: %s",
+                        task.getTaskId(), subject,
+                        completedTask.getResult() != null ? completedTask.getResult() : "执行成功"
+                );
+            } else {
+                return String.format(
+                        "⏳ 任务执行超时\n" +
+                        "任务ID: %s\n" +
+                        "标题: %s\n" +
+                        "状态: 任务仍在执行中，请稍后查询结果",
+                        task.getTaskId(), subject
+                );
+            }
 
         } catch (Exception e) {
             logger.error("创建任务失败: {}", e.getMessage(), e);
             return "操作失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 等待任务完成（轮询检查，带进度推送）
+     */
+    private boolean waitForTaskCompletion(String taskId, String sessionId, String subject, long timeoutMs) {
+        long startTime = System.currentTimeMillis();
+        long checkInterval = 2000; // 每 2 秒检查一次
+        int lastProgress = 5;
+
+        logger.info("开始等待任务完成: taskId={}, timeout={}ms", taskId, timeoutMs);
+
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            // 检查任务状态
+            DagTask task = taskService.getTask(taskId);
+            if (task == null) {
+                logger.warn("任务不存在: {}", taskId);
+                return false;
+            }
+
+            String status = task.getStatus();
+            logger.debug("检查任务状态: taskId={}, status={}", taskId, status);
+
+            if ("completed".equals(status)) {
+                logger.info("任务已完成: taskId={}", taskId);
+                return true;
+            }
+
+            if ("failed".equals(status)) {
+                logger.info("任务失败: taskId={}, error={}", taskId, task.getError());
+                // 推送：任务失败
+                progressBroadcaster.broadcastTaskFailed(sessionId, taskId, subject, task.getError());
+                return true;
+            }
+
+            // 计算进度（基于时间估算）
+            long elapsed = System.currentTimeMillis() - startTime;
+            int progress = Math.min(90, 5 + (int) (elapsed * 85 / timeoutMs));
+            if (progress > lastProgress + 10) {
+                lastProgress = progress;
+                // 推送：进度更新
+                progressBroadcaster.broadcastTaskProgress(
+                        sessionId, taskId, subject, progress, "任务执行中..."
+                );
+            }
+
+            // 等待一段时间再检查
+            try {
+                Thread.sleep(checkInterval);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("等待被中断: taskId={}", taskId);
+                return false;
+            }
+        }
+
+        logger.warn("等待超时: taskId={}", taskId);
+        return false;
+    }
+
+    @Tool("等待当前会话的所有任务完成。返回所有任务的最终状态和结果。")
+    public String waitForAllTasks() {
+        try {
+            String sessionId = getCurrentSessionId();
+            if (sessionId == null) {
+                return "未设置会话上下文";
+            }
+
+            // 获取所有任务
+            List<DagTask> tasks = taskService.getTasksBySession(sessionId);
+            if (tasks.isEmpty()) {
+                return "当前会话没有任务";
+            }
+
+            int totalTasks = tasks.size();
+            logger.info("等待所有任务完成: sessionId={}, totalTasks={}", sessionId, totalTasks);
+
+            // 推送：开始等待
+            progressBroadcaster.broadcastTaskProgress(
+                    sessionId, "all", "全部任务", 0, "等待任务执行..."
+            );
+
+            // 等待所有任务完成
+            long timeoutMs = 600000; // 10分钟总超时
+            long startTime = System.currentTimeMillis();
+
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                // 刷新任务列表
+                tasks = taskService.getTasksBySession(sessionId);
+
+                // 统计完成情况
+                int completedCount = 0;
+                int failedCount = 0;
+                int runningCount = 0;
+
+                for (DagTask task : tasks) {
+                    String status = task.getStatus();
+                    if ("completed".equals(status)) {
+                        completedCount++;
+                    } else if ("failed".equals(status)) {
+                        failedCount++;
+                    } else if ("in_progress".equals(status)) {
+                        runningCount++;
+                    }
+                }
+
+                // 计算总进度
+                int progress = (completedCount + failedCount) * 100 / totalTasks;
+
+                // 推送进度更新
+                progressBroadcaster.broadcastTaskProgress(
+                        sessionId, "all", "全部任务", progress,
+                        String.format("执行中: %d, 完成: %d, 失败: %d", runningCount, completedCount, failedCount)
+                );
+
+                // 检查是否全部完成
+                if (completedCount + failedCount == totalTasks) {
+                    // 推送：所有任务完成
+                    progressBroadcaster.broadcastAllTasksCompleted(sessionId, completedCount, failedCount);
+
+                    logger.info("所有任务完成: sessionId={}, success={}, failed={}", sessionId, completedCount, failedCount);
+                    return formatAllTasksResult(sessionId, tasks, completedCount, failedCount);
+                }
+
+                // 等待
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return "等待被中断";
+                }
+            }
+
+            return "等待超时，部分任务可能仍在执行中";
+
+        } catch (Exception e) {
+            logger.error("等待任务失败: {}", e.getMessage(), e);
+            return "操作失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 格式化所有任务的结果
+     */
+    private String formatAllTasksResult(String sessionId, List<DagTask> tasks, long successCount, long failedCount) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("✅ 所有任务已完成！\n\n");
+
+        for (DagTask task : tasks) {
+            if ("completed".equals(task.getStatus())) {
+                sb.append("✅ ").append(task.getSubject()).append("\n");
+                if (task.getResult() != null) {
+                    sb.append("   结果: ").append(truncate(task.getResult(), 100)).append("\n");
+                }
+            } else if ("failed".equals(task.getStatus())) {
+                sb.append("❌ ").append(task.getSubject()).append("\n");
+                if (task.getError() != null) {
+                    sb.append("   错误: ").append(task.getError()).append("\n");
+                }
+            }
+        }
+
+        sb.append("\n统计: 成功 ").append(successCount).append(" 个, 失败 ").append(failedCount).append(" 个");
+        return sb.toString();
+    }
+
+    private String truncate(String str, int maxLen) {
+        if (str == null) return "";
+        return str.length() > maxLen ? str.substring(0, maxLen) + "..." : str;
     }
 
     @Tool("停止 Task Team 执行。")

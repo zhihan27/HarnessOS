@@ -27,14 +27,38 @@ public class TaskDecompositionService {
     // 简单的拆解接口（无记忆，单参数）
     private interface DecompositionAI {
         @SystemMessage("""
-            你是任务分析专家。分析用户任务，拆解为具体子任务步骤。
+            你是任务拆解专家。分析用户任务，识别是否需要文件操作，并拆解为具体子任务步骤。
 
-            要求：
-            1. 每个子任务必须是具体的、可独立执行的操作
-            2. 子任务之间尽量独立，可以并行执行
-            3. 根据任务实际情况拆解
+            # 核心原则
 
-            输出格式：每行一个子任务，格式为"序号|子任务描述"
+            ## 主Agent职责（仅问答）
+            - 回答问题、分析需求、提供方案
+            - **不执行任何文件操作、代码执行、系统操作**
+
+            ## 子Agent职责（必须拆解）
+            - **文件操作**：创建/读取/修改/删除文件
+            - **代码执行**：运行程序、编译、测试
+            - **系统操作**：安装依赖、配置环境、bash命令
+            - **数据处理**：数据库操作、API调用
+
+            # 拆解规则
+
+            1. **识别操作类型**：
+               - 涉及文件/代码/系统操作 → 必须拆解为子任务
+               - 仅问答/分析 → 主Agent直接回答
+
+            2. **拆解粒度**：
+               - 每个子任务是可独立执行的最小单元
+               - 明确依赖关系和执行顺序
+
+            3. **任务类型标记**：
+               - FILE_OPERATION: 文件操作
+               - CODE_EXECUTION: 代码执行
+               - SYSTEM_OPERATION: 系统操作
+               - DATA_PROCESSING: 数据处理
+               - GENERAL: 通用任务
+
+            输出格式：每行一个子任务，格式为"序号|任务类型|子任务描述"
             """)
         String decompose(String taskDescription);
     }
@@ -80,15 +104,36 @@ public class TaskDecompositionService {
 
             String[] parts = line.split("\\|");
             if (parts.length >= 2) {
-                int order = Integer.parseInt(parts[0].trim().replaceAll("[^0-9]", ""));
-                String description = parts[1].trim();
+                try {
+                    int order = Integer.parseInt(parts[0].trim().replaceAll("[^0-9]", ""));
 
-                subTasks.add(SubTaskDefinition.builder()
-                        .order(order)
-                        .taskType(TaskType.GENERAL)  // 设置默认类型
-                        .description(description)
-                        .inputTemplate(description)
-                        .build());
+                    // 解析任务类型（如果有）
+                    TaskType taskType = TaskType.GENERAL;
+                    String description;
+
+                    if (parts.length >= 3) {
+                        // 格式: 序号|任务类型|描述
+                        String typeStr = parts[1].trim().toUpperCase();
+                        try {
+                            taskType = TaskType.valueOf(typeStr);
+                        } catch (IllegalArgumentException e) {
+                            // 如果类型不匹配，保持 GENERAL
+                        }
+                        description = parts[2].trim();
+                    } else {
+                        // 格式: 序号|描述
+                        description = parts[1].trim();
+                    }
+
+                    subTasks.add(SubTaskDefinition.builder()
+                            .order(order)
+                            .taskType(taskType)
+                            .description(description)
+                            .inputTemplate(description)
+                            .build());
+                } catch (Exception e) {
+                    logger.warn("解析子任务失败: {}", line);
+                }
             }
         }
 

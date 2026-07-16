@@ -3,6 +3,7 @@ package com.harness.core.service;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.hook.ChatContext;
 import com.harness.core.hook.ChatHookExecutor;
+import com.harness.core.model.AiChatModel;
 import com.harness.core.tool.DagTaskToolProvider;
 import com.harness.core.tool.SubAgentToolProvider;
 import com.harness.core.tool.TodoWriteToolProvider;
@@ -77,7 +78,7 @@ public class AgentService {
             return new ChatResult(context.isSuccess(), context.getResult(), sessionInfo.sessionId);
 
         } finally {
-            // 6. 清理工具上下文
+            // 7. 清理工具上下文
             TodoWriteToolProvider.clearSessionContext();
             SubAgentToolProvider.clearSessionContext();
             DagTaskToolProvider.clearSessionContext();
@@ -116,8 +117,8 @@ public class AgentService {
      */
     private String callAI(String sessionId, String message) {
         logger.info("调用AI: sessionId={}", sessionId);
-        AiChatService aiService = aiServiceFactory.getService("openai", sessionId);
-        return aiService.chat(sessionId, message);
+        AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+        return aiModel.chat(sessionId, message);
     }
 
     /**

@@ -1,8 +1,8 @@
-package com.harness.core.tool;
+package com.harness.core.executor;
 
 /**
- * Bash 命令真实执行器
- * 只负责执行命令，不做任何安全检查
+ * Bash 命令执行器接口
+ * 定义命令执行的标准行为
  */
 public interface BashExecutor {
 
