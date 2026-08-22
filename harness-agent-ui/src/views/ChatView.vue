@@ -2,6 +2,9 @@
 import { ref, nextTick, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useTaskStore } from '@/stores/task'
+import MessageItem from '@/components/chat/MessageItem.vue'
+import AssistantMessage from '@/components/chat/AssistantMessage.vue'
+import UserMessage from '@/components/chat/UserMessage.vue'
 
 const chatStore = useChatStore()
 const taskStore = useTaskStore()
@@ -123,6 +126,10 @@ const sendMessage = async () => {
   })
   await scrollToBottom(false)
 
+  // 准备流式 AI 消息
+  let aiMsgId = null
+  let aiMsgContent = ''
+
   try {
     // 使用SSE流式接口
     await chatStore.sendMessageStream(text, {
@@ -139,19 +146,57 @@ const sendMessage = async () => {
         }
       },
 
-      onAiMessage: (data) => {
-        // 移除思考提示
-        const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
-        if (index !== -1) {
-          chatStore.messages.splice(index, 1)
+      onAiToken: (token) => {
+        // 移除思考提示（首次收到 token 时）
+        if (aiMsgId === null) {
+          const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
+          if (index !== -1) {
+            chatStore.messages.splice(index, 1)
+          }
+
+          // 创建新的 AI 消息
+          aiMsgId = Date.now()
+          chatStore.addMessage({
+            id: aiMsgId,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+            isStreaming: true
+          })
         }
 
-        // 添加AI回复
-        chatStore.addMessage({
-          role: 'assistant',
-          content: data.content,
-          timestamp: new Date(data.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-        })
+        // 追加 token 到 AI 消息
+        aiMsgContent += token
+        const aiMsg = chatStore.messages.find(m => m.id === aiMsgId)
+        if (aiMsg) {
+          aiMsg.content = aiMsgContent
+          scrollToBottom(false)
+        }
+      },
+
+      onAiMessage: (data) => {
+        // AI 消息完成（兼容两种情况）
+        if (aiMsgId !== null) {
+          // 流式消息已完成，更新最终内容
+          const aiMsg = chatStore.messages.find(m => m.id === aiMsgId)
+          if (aiMsg) {
+            aiMsg.isStreaming = false
+            aiMsg.content = data.content || aiMsgContent
+          }
+        } else {
+          // 非流式模式（兼容旧版）
+          const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
+          if (index !== -1) {
+            chatStore.messages.splice(index, 1)
+          }
+
+          // 添加AI回复
+          chatStore.addMessage({
+            role: 'assistant',
+            content: data.content,
+            timestamp: new Date(data.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+          })
+        }
         scrollToBottom(false)
       },
 
@@ -165,6 +210,14 @@ const sendMessage = async () => {
         const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
         if (index !== -1) {
           chatStore.messages.splice(index, 1)
+        }
+
+        // 移除流式消息（如果有）
+        if (aiMsgId !== null) {
+          const aiIndex = chatStore.messages.findIndex(m => m.id === aiMsgId)
+          if (aiIndex !== -1) {
+            chatStore.messages.splice(aiIndex, 1)
+          }
         }
 
         // 添加错误消息
@@ -181,6 +234,14 @@ const sendMessage = async () => {
     const index = chatStore.messages.findIndex(m => m.id === thinkingMsgId)
     if (index !== -1) {
       chatStore.messages.splice(index, 1)
+    }
+
+    // 移除流式消息（如果有）
+    if (aiMsgId !== null) {
+      const aiIndex = chatStore.messages.findIndex(m => m.id === aiMsgId)
+      if (aiIndex !== -1) {
+        chatStore.messages.splice(aiIndex, 1)
+      }
     }
 
     // 添加错误消息
@@ -251,10 +312,6 @@ const getStatusText = (status) => {
       </div>
       <div class="header-controls">
         <button @click="toggleSessionList" class="session-btn" title="会话列表">📋</button>
-        <select v-model="modelType" class="model-select">
-          <option value="openai">DeepSeek R1 / V3</option>
-          <option value="anthropic">Claude 3.5 Sonnet</option>
-        </select>
         <button @click="newSession" class="new-btn" title="新会话">➕</button>
         <button @click="clearChat" class="clear-btn" title="清空当前对话">🗑️</button>
       </div>
@@ -295,17 +352,8 @@ const getStatusText = (status) => {
         <div class="empty-desc">选择历史会话或输入消息开始</div>
       </div>
 
-      <div v-for="(msg, index) in messages" :key="index" :class="['message-row', msg.role]">
-        <div :class="['avatar', msg.role]">
-          <span v-if="msg.role === 'user'">ME</span>
-          <span v-else-if="msg.role === 'assistant'">AI</span>
-          <span v-else>!</span>
-        </div>
-        <div class="message-bubble">
-          <div class="bubble-content">{{ msg.content }}</div>
-          <div class="bubble-time">{{ msg.timestamp }}</div>
-        </div>
-      </div>
+      <!-- 使用新的消息组件 -->
+      <MessageItem v-for="(msg, index) in messages" :key="index" :message="msg" />
     </div>
 
     <!-- 任务状态面板 -->
@@ -358,7 +406,7 @@ const getStatusText = (status) => {
 .session-btn:hover { background: rgba(10, 132, 255, 0.1); border-color: rgba(10, 132, 255, 0.2); }
 .new-btn:hover { background: rgba(48, 209, 88, 0.1); border-color: rgba(48, 209, 88, 0.2); }
 .clear-btn:hover { background: rgba(255, 59, 48, 0.1); border-color: rgba(255, 59, 48, 0.2); }
-.model-select { padding: 8px 16px; background: rgba(255, 255, 255, 0.9); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; font-size: 13px; color: #1d1d1f; cursor: pointer; outline: none; transition: all 0.2s ease; font-family: inherit; }
+.model-badge { padding: 8px 16px; background: rgba(10, 132, 255, 0.1); border: 1px solid rgba(10, 132, 255, 0.2); border-radius: 12px; font-size: 13px; color: #0a84ff; font-weight: 500; }
 
 .session-panel { background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 16px; margin: 0 32px 16px; max-height: 280px; overflow: hidden; flex-shrink: 0; }
 .session-panel-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0, 0, 0, 0.06); font-weight: 500; color: #1d1d1f; }

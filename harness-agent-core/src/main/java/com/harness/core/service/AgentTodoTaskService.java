@@ -116,6 +116,28 @@ public class AgentTodoTaskService {
     }
 
     /**
+     * 标记任务失败
+     *
+     * @param taskId 任务 ID
+     * @param errorMessage 错误信息
+     * @return 是否标记成功
+     */
+    @Transactional
+    public boolean markFailed(Long taskId, String errorMessage) {
+        AgentTodoTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            logger.warn("任务不存在: id={}", taskId);
+            return false;
+        }
+
+        task.setStatus(TaskStatus.FAILED.getValue());
+        int updated = taskMapper.updateById(task);
+        logger.error("任务失败: id={}, error={}", taskId, errorMessage);
+
+        return updated > 0;
+    }
+
+    /**
      * 根据会话 ID 删除所有任务（清理会话）
      *
      * @param sessionId 会话 ID

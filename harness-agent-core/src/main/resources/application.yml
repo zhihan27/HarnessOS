@@ -33,17 +33,12 @@ mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
 
 # AI 模型配置
-# 使用阿里云 DashScope OpenAI 兼容模式
+# 使用 DeepSeek OpenAI 兼容协议
 ai:
   openai:
-    api-key: ${OPENAI_API_KEY:sk-sp-b56ceae086634c87a45bad6f0e623fcb}
-    model-name: glm-5
-    base-url: https://coding.dashscope.aliyuncs.com/v1
-
-  anthropic:
-    api-key: ${ANTHROPIC_API_KEY:sk-sp-b56ceae086634c87a45bad6f0e623fcb}
-    model-name: glm-5
-    base-url: https://coding.dashscope.aliyuncs.com/v1
+    api-key: ${OPENAI_API_KEY:}
+    model-name: ${OPENAI_MODEL:glm-5}
+    base-url: ${OPENAI_BASE_URL:https://coding.dashscope.aliyuncs.com/v1}
 
   # 记忆管理配置
   memory:

@@ -6,8 +6,12 @@ import { API_ROUTES, BASE_URL } from '@/api/config'
 export const useChatStore = defineStore('chat', () => {
   // 从 localStorage 读取初始值
   const savedModelType = localStorage.getItem('harness-model-type')
+
+  // 强制重置为 openai（因为已经统一使用 OpenAI 模型）
+  const modelType = ref('openai')
+  localStorage.setItem('harness-model-type', 'openai')
+
   const savedSessionId = localStorage.getItem('harness-session-id')
-  const modelType = ref(savedModelType || 'openai')
 
   // 只有当 sessionId 有效（非空）时才使用
   const currentSessionId = ref(savedSessionId && savedSessionId.length > 0 ? savedSessionId : null)
@@ -187,6 +191,7 @@ export const useChatStore = defineStore('chat', () => {
    * @param {string} text - 用户消息
    * @param {function} onUserMessage - 用户消息回调
    * @param {function} onAiThinking - AI思考回调
+   * @param {function} onAiToken - AI token回调（流式）
    * @param {function} onAiMessage - AI消息回调
    * @param {function} onComplete - 完成回调
    * @param {function} onError - 错误回调
@@ -196,6 +201,7 @@ export const useChatStore = defineStore('chat', () => {
     const {
       onUserMessage,
       onAiThinking,
+      onAiToken,
       onAiMessage,
       onComplete,
       onError
@@ -206,7 +212,8 @@ export const useChatStore = defineStore('chat', () => {
     return new Promise((resolve, reject) => {
       // 构建SSE URL（注意：EventSource需要完整路径）
       const params = new URLSearchParams({
-        message: text
+        message: text,
+        modelType: modelType.value  // 添加模型类型参数
       })
 
       if (currentSessionId.value) {
@@ -268,7 +275,41 @@ export const useChatStore = defineStore('chat', () => {
         }
       })
 
-      // AI消息事件
+      // AI Token 事件（流式推送）
+      eventSource.addEventListener('ai_token', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('ai_token事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          console.log('AI Token:', data.token)
+          if (onAiToken) {
+            onAiToken(data.token)
+          }
+        } catch (e) {
+          console.error('解析ai_token事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // AI消息完成事件
+      eventSource.addEventListener('ai_message_complete', (event) => {
+        try {
+          if (!event.data) {
+            console.warn('ai_message_complete事件无数据')
+            return
+          }
+          const data = JSON.parse(event.data)
+          console.log('AI消息完成:', data)
+          if (onAiMessage) {
+            onAiMessage(data)
+          }
+        } catch (e) {
+          console.error('解析ai_message_complete事件失败:', e, '原始数据:', event.data)
+        }
+      })
+
+      // AI消息事件（兼容旧版）
       eventSource.addEventListener('ai_message', (event) => {
         try {
           if (!event.data) {

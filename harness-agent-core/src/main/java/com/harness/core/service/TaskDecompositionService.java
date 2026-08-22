@@ -3,7 +3,7 @@ package com.harness.core.service;
 import com.harness.core.dto.SubTaskDefinition;
 import com.harness.core.dto.TaskDecompositionContext;
 import com.harness.core.enums.TaskType;
-import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import org.slf4j.Logger;
@@ -22,7 +22,7 @@ public class TaskDecompositionService {
 
     private static final Logger logger = LoggerFactory.getLogger(TaskDecompositionService.class);
 
-    private final OpenAiChatModel openAiChatModel;
+    private final OpenAiStreamingChatModel openaiStreamingChatModel;
 
     // 简单的拆解接口（无记忆，单参数）
     private interface DecompositionAI {
@@ -65,10 +65,10 @@ public class TaskDecompositionService {
 
     private final DecompositionAI decompositionAI;
 
-    public TaskDecompositionService(OpenAiChatModel openAiChatModel) {
-        this.openAiChatModel = openAiChatModel;
+    public TaskDecompositionService(OpenAiStreamingChatModel openaiStreamingChatModel) {
+        this.openaiStreamingChatModel = openaiStreamingChatModel;
         this.decompositionAI = AiServices.builder(DecompositionAI.class)
-                .chatModel(openAiChatModel)
+                .streamingChatModel(openaiStreamingChatModel)
                 .build();
     }
 

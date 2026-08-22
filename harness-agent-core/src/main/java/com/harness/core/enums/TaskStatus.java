@@ -2,7 +2,7 @@ package com.harness.core.enums;
 
 /**
  * Agent 任务状态枚举（秘书模式）
- * 极简架构：只有待完成和已完成两种状态
+ * 极简架构：只有待完成、已完成和失败三种状态
  */
 public enum TaskStatus {
 
@@ -14,7 +14,12 @@ public enum TaskStatus {
     /**
      * 已完成状态
      */
-    COMPLETED("已完成");
+    COMPLETED("已完成"),
+
+    /**
+     * 失败状态
+     */
+    FAILED("失败");
 
     private final String description;
 

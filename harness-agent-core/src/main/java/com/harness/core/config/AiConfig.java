@@ -1,13 +1,13 @@
 package com.harness.core.config;
 
-import dev.langchain4j.model.anthropic.AnthropicChatModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * AI 模型配置类，提供全局可注入的 AI 客户端
+ * AI 模型配置
+ * 只使用 OpenAI 兼容协议 (DeepSeek)
  */
 @Configuration
 public class AiConfig {
@@ -21,36 +21,16 @@ public class AiConfig {
     @Value("${ai.openai.base-url}")
     private String openaiBaseUrl;
 
-    @Value("${ai.anthropic.api-key}")
-    private String anthropicApiKey;
-
-    @Value("${ai.anthropic.model-name}")
-    private String anthropicModelName;
-
-    @Value("${ai.anthropic.base-url}")
-    private String anthropicBaseUrl;
-
     /**
-     * OpenAI ChatModel Bean
+     * 创建 OpenAI 流式聊天模型
+     * 使用 DeepSeek 的 OpenAI 兼容接口
      */
     @Bean
-    public OpenAiChatModel openaiChatModel() {
-        return OpenAiChatModel.builder()
+    public OpenAiStreamingChatModel openaiStreamingChatModel() {
+        return OpenAiStreamingChatModel.builder()
                 .apiKey(openaiApiKey)
                 .modelName(openaiModelName)
                 .baseUrl(openaiBaseUrl)
-                .build();
-    }
-
-    /**
-     * Anthropic ChatModel Bean
-     */
-    @Bean
-    public AnthropicChatModel anthropicChatModel() {
-        return AnthropicChatModel.builder()
-                .apiKey(anthropicApiKey)
-                .modelName(anthropicModelName)
-                .baseUrl(anthropicBaseUrl)
                 .build();
     }
 }

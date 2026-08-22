@@ -375,7 +375,7 @@ public class AgentRegistryService {
             String summaryPrompt = buildSummaryPrompt(completedTasks);
 
             // 直接调用对话 LLM 生成总结（不需要单独的 MainAgent）
-            AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+            AiChatModel aiModel = aiServiceFactory.getModel("openai");
             String summary = aiModel.chat(sessionId, summaryPrompt);
 
             logger.info("任务汇总完成: sessionId={}, summaryLength={}", sessionId, summary.length());

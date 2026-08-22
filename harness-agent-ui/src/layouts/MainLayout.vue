@@ -7,8 +7,7 @@ const router = useRouter()
 const menuItems = [
   { path: '/chat', icon: '💬', title: '智能对话' },
   { path: '/agents', icon: '🤖', title: 'Agent编排' },
-  { path: '/plugins', icon: '🛠️', title: '插件中心' },
-  { path: '/monitor', icon: '📊', title: '内核监控' }
+  { path: '/plugins', icon: '🛠️', title: '插件中心' }
 ]
 
 const isActive = (path) => route.path === path

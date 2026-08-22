@@ -105,7 +105,7 @@ public class TaskExecutor {
 
             try {
                 // 4. 调用 AI 执行（带超时控制）
-                AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+                AiChatModel aiModel = aiServiceFactory.getModel("openai");
 
                 ExecutorService aiExecutor = Executors.newSingleThreadExecutor();
                 Future<String> future = aiExecutor.submit(() -> aiModel.chat(sessionId, executionPrompt));

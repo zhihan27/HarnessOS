@@ -1,7 +1,6 @@
 package com.harness.core.controller;
 
 import com.harness.core.entity.ChatSession;
-import com.harness.core.service.AgentService;
 import com.harness.core.service.ChatSessionService;
 import com.harness.core.service.ConversationStreamService;
 import org.slf4j.Logger;
@@ -18,6 +17,11 @@ import java.util.concurrent.Executors;
  * 对话流式控制器
  *
  * 使用 SSE (Server-Sent Events) 实现实时对话流式输出
+ *
+ * 统一入口：ConversationStreamService
+ * - 支持多模型（OpenAI / Anthropic）
+ * - 支持流式响应（逐token推送）
+ * - 支持工具调用（Bash、File、Todo等）
  */
 @RestController
 @RequestMapping("/api/chat")
@@ -25,15 +29,12 @@ public class ConversationController {
 
     private static final Logger logger = LoggerFactory.getLogger(ConversationController.class);
 
-    private final AgentService agentService;
     private final ChatSessionService chatSessionService;
     private final ConversationStreamService streamService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public ConversationController(AgentService agentService,
-                                 ChatSessionService chatSessionService,
+    public ConversationController(ChatSessionService chatSessionService,
                                  ConversationStreamService streamService) {
-        this.agentService = agentService;
         this.chatSessionService = chatSessionService;
         this.streamService = streamService;
     }
@@ -49,13 +50,15 @@ public class ConversationController {
      *
      * @param sessionId 会话ID（可选，不传则创建新会话）
      * @param message 用户消息
+     * @param modelType 模型类型 (openai/anthropic，可选，默认 anthropic)
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(
             @RequestParam(required = false) String sessionId,
-            @RequestParam String message) {
+            @RequestParam String message,
+            @RequestParam(required = false, defaultValue = "anthropic") String modelType) {
 
-        logger.info("收到流式对话请求: sessionId={}, message={}", sessionId, message);
+        logger.info("收到流式对话请求: sessionId={}, message={}, modelType={}", sessionId, message, modelType);
 
         // 创建 SSE 连接
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
@@ -63,7 +66,7 @@ public class ConversationController {
         // 异步执行对话流程
         executor.submit(() -> {
             try {
-                streamService.streamConversation(sessionId, message, emitter);
+                streamService.streamConversation(sessionId, message, modelType, emitter);
             } catch (Exception e) {
                 logger.error("流式对话异常: {}", e.getMessage(), e);
                 try {

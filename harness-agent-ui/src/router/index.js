@@ -26,12 +26,6 @@ const router = createRouter({
           name: 'plugins',
           component: () => import('@/views/PluginsView.vue'),
           meta: { title: '插件能力中心', icon: '🛠️' }
-        },
-        {
-          path: 'monitor',
-          name: 'monitor',
-          component: () => import('@/views/MonitorView.vue'),
-          meta: { title: '内核指标监控', icon: '📊' }
         }
       ]
     }

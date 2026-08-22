@@ -1,10 +1,12 @@
 package com.harness.core.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.entity.ChatMessage;
+import com.harness.core.hook.ChatContext;
+import com.harness.core.hook.ChatHookExecutor;
 import com.harness.core.model.AiChatModel;
 import com.harness.core.tool.DagTaskToolProvider;
-import com.harness.core.tool.FileToolProvider;
 import com.harness.core.tool.SubAgentToolProvider;
 import com.harness.core.tool.TodoWriteToolProvider;
 import org.slf4j.Logger;
@@ -16,11 +18,13 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * 对话流式服务
+ * 对话流式服务（统一版本）
  *
- * 实现SSE实时推送对话过程中的所有事件
+ * 使用 AiServiceFactory 实现流式响应 + 工具调用 + 会话记忆
+ * 集成 Hook 机制和任务跟踪
  */
 @Service
 public class ConversationStreamService {
@@ -29,28 +33,42 @@ public class ConversationStreamService {
 
     private final ChatSessionService chatSessionService;
     private final AiServiceFactory aiServiceFactory;
+    private final ChatHookExecutor hookExecutor;
+    private final AgentTodoTaskService todoTaskService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ConversationStreamService(ChatSessionService chatSessionService,
-                                    AiServiceFactory aiServiceFactory) {
+                                    AiServiceFactory aiServiceFactory,
+                                    ChatHookExecutor hookExecutor,
+                                    AgentTodoTaskService todoTaskService) {
         this.chatSessionService = chatSessionService;
         this.aiServiceFactory = aiServiceFactory;
+        this.hookExecutor = hookExecutor;
+        this.todoTaskService = todoTaskService;
     }
 
     /**
-     * 流式对话核心流程（简化版）
+     * 流式对话核心流程（使用统一 AI 服务）
      *
      * @param sessionId 会话ID（可选）
      * @param message 用户消息
+     * @param modelType 模型类型 (openai/anthropic)
      * @param emitter SSE发射器
      */
-    public void streamConversation(String sessionId, String message, SseEmitter emitter) {
+    public void streamConversation(String sessionId, String message, String modelType, SseEmitter emitter) {
         String tenantId = "default-tenant";
         String userId = "default-user";
 
+        // 设置工具上下文（必须在 try-finally 中清理）
+        TodoWriteToolProvider.setSessionContext(tenantId, userId, sessionId);
+        SubAgentToolProvider.setSessionContext(tenantId, userId, sessionId);
+        DagTaskToolProvider.setSessionContext(tenantId, userId, sessionId);
+
+        AgentTodoTask trackingTask = null;
+
         try {
             logger.info("=== 开始流式对话 ===");
-            logger.info("sessionId: {}, message: {}", sessionId, message);
+            logger.info("sessionId: {}, message: {}, modelType: {}", sessionId, message, modelType);
 
             // 1. 准备会话
             if (sessionId == null || sessionId.isEmpty()) {
@@ -69,6 +87,11 @@ public class ConversationStreamService {
             String finalSessionId = sessionId;
             logger.info("会话ID: {}", finalSessionId);
 
+            // 更新工具上下文中的 sessionId
+            TodoWriteToolProvider.setSessionContext(tenantId, userId, finalSessionId);
+            SubAgentToolProvider.setSessionContext(tenantId, userId, finalSessionId);
+            DagTaskToolProvider.setSessionContext(tenantId, userId, finalSessionId);
+
             // 2. 发送用户消息事件（立即显示）
             sendEvent(emitter, "user_message", new MessageEvent(
                     null,
@@ -78,37 +101,101 @@ public class ConversationStreamService {
             ));
             logger.info("已发送user_message事件");
 
-            // 3. 发送AI开始思考事件
+            // 3. 创建跟踪任务（用于监控对话进度）
+            trackingTask = todoTaskService.createTask(
+                    tenantId, userId, finalSessionId, message, null
+            );
+            logger.info("创建跟踪任务: id={}", trackingTask.getId());
+
+            // 4. 执行前置 Hook
+            ChatContext context = new ChatContext(tenantId, userId, finalSessionId, message);
+            hookExecutor.executeBefore(context);
+
+            if (!context.isSuccess()) {
+                // Hook 阻止了对话执行
+                sendEvent(emitter, "error", new ErrorEvent(context.getResult()));
+                emitter.complete();
+                return;
+            }
+
+            // 5. 发送AI开始思考事件
             sendEvent(emitter, "ai_thinking", new ThinkingEvent("AI正在思考..."));
             logger.info("已发送ai_thinking事件");
 
-            // 4. 调用AI（简化：不设置工具上下文）
+            // 6. 调用统一 AI 服务（流式响应 + 工具调用）
             try {
-                logger.info("开始调用AI服务...");
-                AiChatModel aiModel = aiServiceFactory.getModel("openai", finalSessionId);
+                logger.info("开始调用统一 AI 服务（支持工具调用），modelType={}", modelType);
 
-                logger.info("AI模型获取成功，开始chat...");
-                String aiResponse = aiModel.chat(finalSessionId, message);
+                // 获取 AI 模型（支持工具 + 流式 + 会话记忆）
+                AiChatModel aiModel = aiServiceFactory.getModel(modelType);
+                logger.info("已获取 AI 模型: modelType={}", modelType);
 
-                logger.info("AI响应完成，长度: {}", aiResponse != null ? aiResponse.length() : 0);
+                // 创建异步 Future
+                CompletableFuture<String> future = new CompletableFuture<>();
+                StringBuilder responseBuilder = new StringBuilder();
+
+                // 调用流式聊天
+                aiModel.chatStream(finalSessionId, message)
+                        .onPartialResponse(token -> {
+                            // 处理每个 token
+                            if (token != null && !token.isEmpty()) {
+                                responseBuilder.append(token);
+                                sendTokenEvent(emitter, token);
+                            }
+                        })
+                        .onCompleteResponse(response -> {
+                            // 流式响应完成
+                            String aiResponse = responseBuilder.toString();
+                            logger.info("AI流式响应完成，长度: {}", aiResponse.length());
+
+                            // 更新上下文结果
+                            context.setResult(aiResponse);
+
+                            // 发送AI消息完成事件
+                            sendEvent(emitter, "ai_message_complete", new MessageEvent(
+                                    null,
+                                    "AI",
+                                    aiResponse,
+                                    LocalDateTime.now().toString()
+                            ));
+                            logger.info("已发送ai_message_complete事件");
+
+                            // 完成 Future
+                            future.complete(aiResponse);
+                        })
+                        .onError(error -> {
+                            // 错误处理
+                            logger.error("AI流式响应错误: {}", error.getMessage(), error);
+                            future.completeExceptionally(error);
+                        })
+                        .start(); // 启动流式处理
+
+                // 等待流式响应完成
+                String aiResponse = future.get();
 
                 // 确保aiResponse不为空
                 if (aiResponse == null || aiResponse.isEmpty()) {
                     aiResponse = "抱歉，AI没有返回有效响应";
                     logger.warn("AI响应为空，使用默认消息");
+                    context.setResult(aiResponse);
                 }
 
-                // 发送AI回复事件
-                sendEvent(emitter, "ai_message", new MessageEvent(
-                        null,
-                        "AI",
-                        aiResponse,
-                        LocalDateTime.now().toString()
-                ));
-                logger.info("已发送ai_message事件");
+                logger.info("统一 AI 服务调用完成");
+
+                // 7. 执行后置 Hook
+                hookExecutor.executeAfter(context);
+
+                // 8. 标记跟踪任务完成
+                todoTaskService.markCompleted(trackingTask.getId());
+                logger.info("跟踪任务已完成: id={}", trackingTask.getId());
 
             } catch (Exception aiError) {
                 logger.error("AI调用失败: {}", aiError.getMessage(), aiError);
+
+                // 标记跟踪任务失败
+                if (trackingTask != null) {
+                    todoTaskService.markFailed(trackingTask.getId(), aiError.getMessage());
+                }
 
                 // 发送错误消息作为AI回复
                 sendEvent(emitter, "ai_message", new MessageEvent(
@@ -120,9 +207,9 @@ public class ConversationStreamService {
                 logger.info("已发送AI错误消息");
             }
 
-            // 5. 发送完成事件
+            // 9. 发送完成事件
             sendEvent(emitter, "chat_complete", new ChatCompleteEvent(
-                    true,
+                    context.isSuccess(),
                     finalSessionId,
                     null
             ));
@@ -135,6 +222,15 @@ public class ConversationStreamService {
         } catch (Exception e) {
             logger.error("流式对话失败: {}", e.getMessage(), e);
 
+            // 标记跟踪任务失败
+            if (trackingTask != null) {
+                try {
+                    todoTaskService.markFailed(trackingTask.getId(), e.getMessage());
+                } catch (Exception markError) {
+                    logger.error("标记任务失败时出错: {}", markError.getMessage());
+                }
+            }
+
             try {
                 String errorMessage = e.getMessage() != null ? e.getMessage() : "未知错误";
                 sendEvent(emitter, "error", new ErrorEvent(errorMessage));
@@ -143,6 +239,12 @@ public class ConversationStreamService {
             } catch (Exception sendError) {
                 logger.error("发送error事件失败: {}", sendError.getMessage());
             }
+        } finally {
+            // 10. 清理工具上下文（重要！）
+            TodoWriteToolProvider.clearSessionContext();
+            SubAgentToolProvider.clearSessionContext();
+            DagTaskToolProvider.clearSessionContext();
+            logger.debug("已清理工具上下文");
         }
     }
 
@@ -180,6 +282,33 @@ public class ConversationStreamService {
         } catch (IOException e) {
             logger.error("发送SSE事件失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 发送 token 事件
+     */
+    private void sendTokenEvent(SseEmitter emitter, String token) {
+        try {
+            String escapedToken = escapeJson(token);
+            String json = String.format("{\"token\":\"%s\"}", escapedToken);
+            emitter.send(SseEmitter.event()
+                    .name("ai_token")
+                    .data(json));
+        } catch (IOException e) {
+            logger.error("发送token事件失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * JSON 字符串转义
+     */
+    private String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     /**

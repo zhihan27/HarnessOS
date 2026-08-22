@@ -75,7 +75,7 @@ public class MainAgentService {
         try {
             // 2. 调用 AI 进行任务拆解
             String decompositionPrompt = buildDecompositionPrompt(taskDescription);
-            AiChatModel aiModel = aiServiceFactory.getModel("openai", sessionId);
+            AiChatModel aiModel = aiServiceFactory.getModel("openai");
             String aiResponse = aiModel.chat(sessionId, decompositionPrompt);
 
             // 3. 解析 AI 返回的任务规格

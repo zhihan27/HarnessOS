@@ -2,7 +2,6 @@ package com.harness.core.controller;
 
 import com.harness.core.entity.ChatMessage;
 import com.harness.core.entity.ChatSession;
-import com.harness.core.service.AgentService;
 import com.harness.core.service.ChatSessionService;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,30 +9,18 @@ import java.util.List;
 
 /**
  * Harness Agent 控制器
- * 仅负责请求接收和响应转换，业务逻辑在 Service 层
+ * 提供会话管理功能
+ *
+ * 注意：聊天功能已迁移到 ConversationController 的流式接口 (/api/chat/stream)
  */
 @RestController
 @RequestMapping("/api/agent")
 public class HarnessController {
 
-    private final AgentService agentService;
     private final ChatSessionService chatSessionService;
 
-    public HarnessController(AgentService agentService,
-                             ChatSessionService chatSessionService) {
-        this.agentService = agentService;
+    public HarnessController(ChatSessionService chatSessionService) {
         this.chatSessionService = chatSessionService;
-    }
-
-    /**
-     * Chat 接口
-     */
-    @PostMapping("chat")
-    public ChatResponse chat(@RequestBody ChatRequest request) {
-        AgentService.ChatResult result = agentService.chat(
-                "default-tenant", "default-user", request.sessionId(), request.message()
-        );
-        return new ChatResponse(result.success(), result.message(), result.sessionId());
     }
 
     /**
@@ -139,9 +126,6 @@ public class HarnessController {
     }
 
     // ========== Request/Response Records ==========
-
-    public record ChatRequest(String message, String sessionId) {}
-    public record ChatResponse(boolean success, String message, String sessionId) {}
 
     public record SessionRequest(String tenantId, String userId) {}
     public record SessionResponse(String sessionId, java.time.LocalDateTime createdAt) {}

@@ -3,10 +3,12 @@ package com.harness.core.model;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.TokenStream;
 
 /**
  * AI 聊天模型接口
  * 定义 AI 对话的标准行为
+ * 支持同步和流式两种调用方式
  */
 public interface AiChatModel {
 
@@ -71,4 +73,13 @@ public interface AiChatModel {
         - 路径格式: D:\\folder 或 C:\\Users
         """)
     String chat(@MemoryId String sessionId, @UserMessage String userMessage);
+
+    /**
+     * 流式聊天（支持工具调用 + 逐token推送）
+     *
+     * @param sessionId 会话ID
+     * @param userMessage 用户消息
+     * @return TokenStream 流式响应
+     */
+    TokenStream chatStream(@MemoryId String sessionId, @UserMessage String userMessage);
 }
