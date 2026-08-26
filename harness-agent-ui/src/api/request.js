@@ -51,6 +51,13 @@ export async function post(endpoint, body) {
   })
 }
 
+export async function put(endpoint, body) {
+  return request(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  })
+}
+
 /**
  * GET 请求封装
  * @param {string} endpoint - API 路径

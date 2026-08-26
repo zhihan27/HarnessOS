@@ -11,6 +11,8 @@ export const API_ROUTES = {
   ARCHIVE_SESSION: '/agent/sessions',   // 归档会话 (需要拼接sessionId + /archive)
   AGENTS: '/agent/list',
   PLUGINS: '/plugin/list',
+  MODEL_CONFIGS: '/model-configs',
+  MODEL_CONFIG_ACTIVE: '/model-configs/active',
   MONITOR: '/monitor/stats',
   // Task Team API
   TASK_LIST: '/task/list',              // 任务列表

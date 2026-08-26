@@ -22,7 +22,7 @@ public class TaskDecompositionService {
 
     private static final Logger logger = LoggerFactory.getLogger(TaskDecompositionService.class);
 
-    private final OpenAiStreamingChatModel openaiStreamingChatModel;
+    private final AiRuntimeModelProvider runtimeModelProvider;
 
     // 简单的拆解接口（无记忆，单参数）
     private interface DecompositionAI {
@@ -63,13 +63,8 @@ public class TaskDecompositionService {
         String decompose(String taskDescription);
     }
 
-    private final DecompositionAI decompositionAI;
-
-    public TaskDecompositionService(OpenAiStreamingChatModel openaiStreamingChatModel) {
-        this.openaiStreamingChatModel = openaiStreamingChatModel;
-        this.decompositionAI = AiServices.builder(DecompositionAI.class)
-                .streamingChatModel(openaiStreamingChatModel)
-                .build();
+    public TaskDecompositionService(AiRuntimeModelProvider runtimeModelProvider) {
+        this.runtimeModelProvider = runtimeModelProvider;
     }
 
     /**
@@ -80,7 +75,10 @@ public class TaskDecompositionService {
 
         // 调用AI生成拆解计划
         String taskPrompt = context.getMainTaskDescription();
-        String aiResponse = decompositionAI.decompose(taskPrompt);
+        String aiResponse = AiServices.builder(DecompositionAI.class)
+                .streamingChatModel(runtimeModelProvider.get())
+                .build()
+                .decompose(taskPrompt);
 
         // 解析AI返回的子任务列表
         List<SubTaskDefinition> subTasks = parseSubTasks(aiResponse);

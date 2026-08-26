@@ -21,7 +21,7 @@ public class AiServiceFactory {
 
     private static final Logger logger = LoggerFactory.getLogger(AiServiceFactory.class);
 
-    private final OpenAiStreamingChatModel openaiStreamingModel;
+    private final AiRuntimeModelProvider runtimeModelProvider;
 
     private final ToolProvider toolProvider;
     private final BashToolProvider bashToolProvider;
@@ -36,7 +36,7 @@ public class AiServiceFactory {
     private AiChatModel openaiModel;
 
     public AiServiceFactory(
-            OpenAiStreamingChatModel openaiStreamingModel,
+            AiRuntimeModelProvider runtimeModelProvider,
             ToolProvider toolProvider,
             BashToolProvider bashToolProvider,
             FileToolProvider fileToolProvider,
@@ -44,7 +44,7 @@ public class AiServiceFactory {
             SubAgentToolProvider subAgentToolProvider,
             DagTaskToolProvider dagTaskToolProvider,
             DatabaseChatMemoryStore memoryStore) {
-        this.openaiStreamingModel = openaiStreamingModel;
+        this.runtimeModelProvider = runtimeModelProvider;
         this.toolProvider = toolProvider;
         this.bashToolProvider = bashToolProvider;
         this.fileToolProvider = fileToolProvider;
@@ -58,7 +58,7 @@ public class AiServiceFactory {
         logger.info("AI 服务工厂初始化完成，已注册 {} 个工具", getToolCount());
     }
 
-    private void initModels() {
+    public synchronized void reload() {
         // 解析 AOP 代理对象，获取真实的 Tool 实例
         // 如果代理解析失败，直接使用注入的 Bean
         ToolProvider rawToolProvider = resolveProxy(toolProvider, ToolProvider.class);
@@ -70,7 +70,7 @@ public class AiServiceFactory {
 
         // 初始化 OpenAI 模型
         this.openaiModel = AiServices.builder(AiChatModel.class)
-                .streamingChatModel(openaiStreamingModel)
+                .streamingChatModel(runtimeModelProvider.get())
                 .tools(rawToolProvider)
                 .tools(rawBashToolProvider)
                 .tools(rawFileToolProvider)
@@ -83,6 +83,10 @@ public class AiServiceFactory {
                         .chatMemoryStore(memoryStore)
                         .build())
                 .build();
+    }
+
+    private void initModels() {
+        reload();
     }
 
     /**

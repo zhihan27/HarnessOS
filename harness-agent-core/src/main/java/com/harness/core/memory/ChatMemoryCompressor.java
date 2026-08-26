@@ -4,6 +4,7 @@ import com.harness.core.mapper.ChatMemorySummaryMapper;
 import com.harness.core.mapper.ChatMessageMapper;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import com.harness.core.service.AiRuntimeModelProvider;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -24,7 +25,7 @@ public class ChatMemoryCompressor {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatMemoryCompressor.class);
 
-    private final OpenAiStreamingChatModel streamingChatModel;
+    private final AiRuntimeModelProvider runtimeModelProvider;
     private final ChatMessageMapper messageMapper;
     private final ChatMemorySummaryMapper summaryMapper;
     private final TokenCounter tokenCounter;
@@ -45,11 +46,11 @@ public class ChatMemoryCompressor {
     }
 
     public ChatMemoryCompressor(
-            OpenAiStreamingChatModel streamingChatModel,
+            AiRuntimeModelProvider runtimeModelProvider,
             ChatMessageMapper messageMapper,
             ChatMemorySummaryMapper summaryMapper,
             TokenCounter tokenCounter) {
-        this.streamingChatModel = streamingChatModel;
+        this.runtimeModelProvider = runtimeModelProvider;
         this.messageMapper = messageMapper;
         this.summaryMapper = summaryMapper;
         this.tokenCounter = tokenCounter;
@@ -111,7 +112,7 @@ public class ChatMemoryCompressor {
 
             // 使用 OpenAI 模型生成摘要
             SummaryGenerator generator = AiServices.builder(SummaryGenerator.class)
-                    .streamingChatModel(streamingChatModel)
+                    .streamingChatModel(runtimeModelProvider.get())
                     .build();
 
             return generator.generateSummary(conversation.toString());

@@ -26,6 +26,12 @@ const router = createRouter({
           name: 'plugins',
           component: () => import('@/views/PluginsView.vue'),
           meta: { title: '插件能力中心', icon: '🛠️' }
+        },
+        {
+          path: 'models',
+          name: 'models',
+          component: () => import('@/views/ModelConfigsView.vue'),
+          meta: { title: '模型配置', icon: '⚙' }
         }
       ]
     }
