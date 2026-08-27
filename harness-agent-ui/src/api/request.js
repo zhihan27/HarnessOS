@@ -1,4 +1,4 @@
-import { BASE_URL, API_ROUTES, DEFAULT_HEADERS, REQUEST_TIMEOUT } from '@/api/config'
+﻿import { BASE_URL, API_ROUTES, DEFAULT_HEADERS, REQUEST_TIMEOUT } from '@/api/config'
 
 /**
  * 统一请求封装
@@ -24,7 +24,20 @@ export async function request(endpoint, options = {}) {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      let message = `HTTP ${response.status}: ${response.statusText}`
+      try {
+        const errorData = await response.json()
+        message = errorData?.error || errorData?.message || message
+      } catch {
+        // 非 JSON 错误响应时保留 HTTP 状态信息
+      }
+      throw new Error(message)
+    }
+
+    // DELETE 等接口成功时可能返回空响应体，不再强制解析 JSON
+    const contentType = response.headers.get('content-type') || ''
+    if (response.status === 204 || !contentType.includes('application/json')) {
+      return null
     }
 
     const data = await response.json()
