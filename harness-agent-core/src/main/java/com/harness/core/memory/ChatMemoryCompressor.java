@@ -1,5 +1,6 @@
 package com.harness.core.memory;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.mapper.ChatMemorySummaryMapper;
 import com.harness.core.mapper.ChatMessageMapper;
 import dev.langchain4j.data.message.ChatMessage;
@@ -21,6 +22,7 @@ import java.util.List;
  * 使用 OpenAI 模型生成摘要
  */
 @Service
+@RequiredArgsConstructor
 public class ChatMemoryCompressor {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatMemoryCompressor.class);
@@ -43,17 +45,6 @@ public class ChatMemoryCompressor {
             4. 使用中文输出
             """)
         String generateSummary(@UserMessage String conversation);
-    }
-
-    public ChatMemoryCompressor(
-            AiRuntimeModelProvider runtimeModelProvider,
-            ChatMessageMapper messageMapper,
-            ChatMemorySummaryMapper summaryMapper,
-            TokenCounter tokenCounter) {
-        this.runtimeModelProvider = runtimeModelProvider;
-        this.messageMapper = messageMapper;
-        this.summaryMapper = summaryMapper;
-        this.tokenCounter = tokenCounter;
     }
 
     /**

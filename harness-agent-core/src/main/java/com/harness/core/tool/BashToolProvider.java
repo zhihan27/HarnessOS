@@ -1,5 +1,6 @@
 package com.harness.core.tool;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.executor.SecureBashExecutor;
 import com.harness.core.service.ToolProgressBroadcaster;
 import dev.langchain4j.agent.tool.Tool;
@@ -16,18 +17,13 @@ import org.springframework.stereotype.Component;
  * 执行时会通过 SSE 推送工具进度
  */
 @Component
+@RequiredArgsConstructor
 public class BashToolProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(BashToolProvider.class);
 
     private final SecureBashExecutor secureExecutor;
     private final ToolProgressBroadcaster progressBroadcaster;
-
-    public BashToolProvider(SecureBashExecutor secureExecutor,
-                            ToolProgressBroadcaster progressBroadcaster) {
-        this.secureExecutor = secureExecutor;
-        this.progressBroadcaster = progressBroadcaster;
-    }
 
     /**
      * 执行 Bash 命令（带安全检查）

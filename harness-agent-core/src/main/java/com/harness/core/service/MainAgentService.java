@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harness.core.entity.AgentInstance;
 import com.harness.core.entity.DagTask;
@@ -23,6 +24,7 @@ import java.util.Map;
  * 3. 设置任务依赖关系
  */
 @Service
+@RequiredArgsConstructor
 public class MainAgentService {
 
     private static final Logger logger = LoggerFactory.getLogger(MainAgentService.class);
@@ -32,16 +34,6 @@ public class MainAgentService {
     private final AiServiceFactory aiServiceFactory;
     private final AgentInstanceMapper agentMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    public MainAgentService(AgentRegistryService registryService,
-                            DagTaskService taskService,
-                            AiServiceFactory aiServiceFactory,
-                            AgentInstanceMapper agentMapper) {
-        this.registryService = registryService;
-        this.taskService = taskService;
-        this.aiServiceFactory = aiServiceFactory;
-        this.agentMapper = agentMapper;
-    }
 
     /**
      * 拆解复杂任务

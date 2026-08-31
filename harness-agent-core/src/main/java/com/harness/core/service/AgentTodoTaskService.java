@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.enums.TaskStatus;
@@ -16,15 +17,12 @@ import java.util.List;
  * 极简架构：只提供 addTodo、listTodo、finishTodo 三个核心功能
  */
 @Service
+@RequiredArgsConstructor
 public class AgentTodoTaskService {
 
     private static final Logger logger = LoggerFactory.getLogger(AgentTodoTaskService.class);
 
     private final AgentTodoTaskMapper taskMapper;
-
-    public AgentTodoTaskService(AgentTodoTaskMapper taskMapper) {
-        this.taskMapper = taskMapper;
-    }
 
     /**
      * 添加任务

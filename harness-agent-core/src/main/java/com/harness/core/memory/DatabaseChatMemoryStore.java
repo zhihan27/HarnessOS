@@ -1,5 +1,6 @@
 package com.harness.core.memory;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.harness.core.entity.ChatSession;
 import com.harness.core.enums.MessageType;
@@ -27,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 实现 LangChain4j 的 ChatMemoryStore 接口
  */
 @Component
+@RequiredArgsConstructor
 public class DatabaseChatMemoryStore implements ChatMemoryStore {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseChatMemoryStore.class);
@@ -44,16 +46,6 @@ public class DatabaseChatMemoryStore implements ChatMemoryStore {
 
     // 默认最大Token数（DeepSeek模型）
     private static final int DEFAULT_MAX_TOKENS = 128000;
-
-    public DatabaseChatMemoryStore(ChatSessionMapper sessionMapper,
-                                   ChatMessageMapper messageMapper,
-                                   ChatMemoryCompressor compressor,
-                                   TokenCounter tokenCounter) {
-        this.sessionMapper = sessionMapper;
-        this.messageMapper = messageMapper;
-        this.compressor = compressor;
-        this.tokenCounter = tokenCounter;
-    }
 
     @Override
     public List<dev.langchain4j.data.message.ChatMessage> getMessages(Object memoryId) {

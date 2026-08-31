@@ -4,6 +4,7 @@ import com.harness.core.entity.ChatMessage;
 import com.harness.core.entity.ChatSession;
 import com.harness.core.service.ChatSessionService;
 import org.springframework.web.bind.annotation.*;
+import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
@@ -15,13 +16,10 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/agent")
+@RequiredArgsConstructor
 public class HarnessController {
 
     private final ChatSessionService chatSessionService;
-
-    public HarnessController(ChatSessionService chatSessionService) {
-        this.chatSessionService = chatSessionService;
-    }
 
     /**
      * 创建新会话

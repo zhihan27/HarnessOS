@@ -14,10 +14,9 @@ export async function request(endpoint, options = {}) {
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        ...DEFAULT_HEADERS,
-        ...options.headers
-      },
+      headers: options.body instanceof FormData
+        ? { Accept: DEFAULT_HEADERS.Accept, ...options.headers }
+        : { ...DEFAULT_HEADERS, ...options.headers },
       signal: controller.signal
     })
 

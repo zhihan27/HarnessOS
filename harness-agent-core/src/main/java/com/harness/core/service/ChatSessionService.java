@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.harness.core.entity.ChatSession;
 import com.harness.core.entity.ChatMessage;
@@ -20,6 +21,7 @@ import java.util.UUID;
  * 提供会话创建、查询、历史获取等功能
  */
 @Service
+@RequiredArgsConstructor
 public class ChatSessionService {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatSessionService.class);
@@ -27,14 +29,6 @@ public class ChatSessionService {
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
     private final DatabaseChatMemoryStore memoryStore;
-
-    public ChatSessionService(ChatSessionMapper sessionMapper,
-                             ChatMessageMapper messageMapper,
-                             DatabaseChatMemoryStore memoryStore) {
-        this.sessionMapper = sessionMapper;
-        this.messageMapper = messageMapper;
-        this.memoryStore = memoryStore;
-    }
 
     /**
      * 创建新会话

@@ -28,6 +28,12 @@ const router = createRouter({
           meta: { title: '插件能力中心', icon: '🛠️' }
         },
         {
+          path: 'rag',
+          name: 'rag',
+          component: () => import('@/views/RagView.vue'),
+          meta: { title: 'RAG 知识库', icon: 'database' }
+        },
+        {
           path: 'models',
           name: 'models',
           component: () => import('@/views/ModelConfigsView.vue'),

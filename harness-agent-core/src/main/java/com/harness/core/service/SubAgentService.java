@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.harness.core.entity.SubAgentTask;
 import com.harness.core.enums.SubAgentStatus;
@@ -17,6 +18,7 @@ import java.util.UUID;
  * 只负责创建子任务记录
  */
 @Service
+@RequiredArgsConstructor
 public class SubAgentService {
 
     private static final Logger logger = LoggerFactory.getLogger(SubAgentService.class);
@@ -25,10 +27,6 @@ public class SubAgentService {
     private static final int DEFAULT_MAX_RETRIES = 3;
 
     private final SubAgentTaskMapper subAgentTaskMapper;
-
-    public SubAgentService(SubAgentTaskMapper subAgentTaskMapper) {
-        this.subAgentTaskMapper = subAgentTaskMapper;
-    }
 
     /**
      * 创建子任务

@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.context.AgentContext;
 import com.harness.core.entity.AgentInstance;
 import com.harness.core.entity.DagTask;
@@ -23,6 +24,7 @@ import java.util.concurrent.*;
  * 3. 执行任务（含 SubAgent 支持）
  */
 @Service
+@RequiredArgsConstructor
 public class WorkerAgentService {
 
     private static final Logger logger = LoggerFactory.getLogger(WorkerAgentService.class);
@@ -39,14 +41,6 @@ public class WorkerAgentService {
 
     // 轮询间隔（毫秒）
     private static final long POLL_INTERVAL_MS = 2000;
-
-    public WorkerAgentService(AgentRegistryService registryService,
-                              TaskExecutor taskExecutor,
-                              AgentInstanceMapper agentMapper) {
-        this.registryService = registryService;
-        this.taskExecutor = taskExecutor;
-        this.agentMapper = agentMapper;
-    }
 
     /**
      * 启动 Worker Agent 执行循环

@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.harness.core.entity.DagTask;
 import com.harness.core.mapper.DagTaskMapper;
@@ -22,17 +23,13 @@ import java.util.UUID;
  * 4. 责任人管理
  */
 @Service
+@RequiredArgsConstructor
 public class DagTaskService {
 
     private static final Logger logger = LoggerFactory.getLogger(DagTaskService.class);
 
     private final DagTaskMapper taskMapper;
     private final DagDependencyResolver dependencyResolver;
-
-    public DagTaskService(DagTaskMapper taskMapper, DagDependencyResolver dependencyResolver) {
-        this.taskMapper = taskMapper;
-        this.dependencyResolver = dependencyResolver;
-    }
 
     // ==================== CRUD 操作 ====================
 

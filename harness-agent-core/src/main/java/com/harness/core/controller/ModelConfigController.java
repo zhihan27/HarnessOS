@@ -5,21 +5,17 @@ import com.harness.core.service.AiRuntimeModelProvider;
 import com.harness.core.service.AiServiceFactory;
 import com.harness.core.service.ModelConfigService;
 import org.springframework.web.bind.annotation.*;
+import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/model-configs")
+@RequiredArgsConstructor
 public class ModelConfigController {
     private final ModelConfigService service;
     private final AiRuntimeModelProvider provider;
     private final AiServiceFactory factory;
-
-    public ModelConfigController(ModelConfigService service, AiRuntimeModelProvider provider, AiServiceFactory factory) {
-        this.service = service;
-        this.provider = provider;
-        this.factory = factory;
-    }
 
     @GetMapping
     public List<Response> list() {

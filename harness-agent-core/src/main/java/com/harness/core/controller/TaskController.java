@@ -6,6 +6,7 @@ import com.harness.core.service.TaskDispatcher;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 
 /**
  * Task Team 控制器
@@ -13,15 +14,11 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/task")
+@RequiredArgsConstructor
 public class TaskController {
 
     private final DagTaskService taskService;
     private final TaskDispatcher taskDispatcher;
-
-    public TaskController(DagTaskService taskService, TaskDispatcher taskDispatcher) {
-        this.taskService = taskService;
-        this.taskDispatcher = taskDispatcher;
-    }
 
     /**
      * 获取所有任务列表

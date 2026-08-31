@@ -1,5 +1,6 @@
 package com.harness.core.security;
 
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -9,15 +10,12 @@ import org.springframework.stereotype.Service;
  * 统一的安全检查入口
  */
 @Service
+@RequiredArgsConstructor
 public class SecurityInterceptor {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityInterceptor.class);
 
     private final SecurityRules securityRules;
-
-    public SecurityInterceptor(SecurityRules securityRules) {
-        this.securityRules = securityRules;
-    }
 
     /**
      * 检查输入内容是否安全

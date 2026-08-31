@@ -1,5 +1,6 @@
 package com.harness.core.executor;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.context.AgentContext;
 import com.harness.core.security.CommandSemanticAnalyzer;
 import com.harness.core.security.SecurityCheckResult;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
  * - WORKER Agent：宽松策略（仅高危硬拦截，跳过中危软询问）
  */
 @Component
+@RequiredArgsConstructor
 public class SecureBashExecutor implements BashExecutor {
 
     private static final Logger logger = LoggerFactory.getLogger(SecureBashExecutor.class);
@@ -26,14 +28,6 @@ public class SecureBashExecutor implements BashExecutor {
     private final SecurityInterceptor interceptor;
     private final CommandSemanticAnalyzer semanticAnalyzer;
     private final RealBashExecutor realExecutor;
-
-    public SecureBashExecutor(SecurityInterceptor interceptor,
-                             CommandSemanticAnalyzer semanticAnalyzer,
-                             RealBashExecutor realExecutor) {
-        this.interceptor = interceptor;
-        this.semanticAnalyzer = semanticAnalyzer;
-        this.realExecutor = realExecutor;
-    }
 
     @Override
     public String execute(String command) {

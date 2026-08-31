@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.entity.DagTask;
 import com.harness.core.mapper.DagTaskMapper;
 import com.harness.core.model.AiChatModel;
@@ -23,6 +24,7 @@ import java.util.concurrent.*;
  * 3. 触发后续任务解锁
  */
 @Component
+@RequiredArgsConstructor
 public class TaskExecutor {
 
     private static final Logger logger = LoggerFactory.getLogger(TaskExecutor.class);
@@ -37,16 +39,6 @@ public class TaskExecutor {
 
     // AI 调用超时时间（秒）- 增加到 10 分钟
     private static final int AI_TIMEOUT_SECONDS = 600;
-
-    public TaskExecutor(DagTaskService taskService,
-                        DagTaskMapper taskMapper,
-                        AiServiceFactory aiServiceFactory,
-                        DagDependencyResolver dependencyResolver) {
-        this.taskService = taskService;
-        this.taskMapper = taskMapper;
-        this.aiServiceFactory = aiServiceFactory;
-        this.dependencyResolver = dependencyResolver;
-    }
 
     /**
      * 异步执行任务

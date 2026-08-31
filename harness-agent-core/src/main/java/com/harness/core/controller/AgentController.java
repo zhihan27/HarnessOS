@@ -6,6 +6,7 @@ import com.harness.core.service.*;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
@@ -22,6 +23,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/agent-mgr")
+@RequiredArgsConstructor
 public class AgentController {
 
     private final AgentRegistryService registryService;
@@ -29,18 +31,6 @@ public class AgentController {
     private final WorkerAgentService workerAgentService;
     private final AgentStatusBroadcaster broadcaster;
     private final ToolProgressBroadcaster toolProgressBroadcaster;
-
-    public AgentController(AgentRegistryService registryService,
-                           MainAgentService mainAgentService,
-                           WorkerAgentService workerAgentService,
-                           AgentStatusBroadcaster broadcaster,
-                           ToolProgressBroadcaster toolProgressBroadcaster) {
-        this.registryService = registryService;
-        this.mainAgentService = mainAgentService;
-        this.workerAgentService = workerAgentService;
-        this.broadcaster = broadcaster;
-        this.toolProgressBroadcaster = toolProgressBroadcaster;
-    }
 
     // ==================== Agent 注册与管理 ====================
 

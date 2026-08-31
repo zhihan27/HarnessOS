@@ -13,6 +13,7 @@ export const API_ROUTES = {
   PLUGINS: '/plugin/list',
   MODEL_CONFIGS: '/model-configs',
   MODEL_CONFIG_ACTIVE: '/model-configs/active',
+  RAG_KNOWLEDGE_BASES: '/rag/knowledge-bases',
   MONITOR: '/monitor/stats',
   // Task Team API
   TASK_LIST: '/task/list',              // 任务列表

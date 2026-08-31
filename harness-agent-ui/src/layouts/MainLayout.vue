@@ -1,14 +1,15 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
+import { Bot, Database, MessageSquare, Settings } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 
 const menuItems = [
-  { path: '/chat', icon: '💬', title: '智能对话' },
-  { path: '/agents', icon: '🤖', title: 'Agent编排' },
-  { path: '/plugins', icon: '🛠️', title: '插件中心' },
-  { path: '/models', icon: '⚙', title: '模型配置' }
+  { path: '/chat', icon: MessageSquare, title: '智能对话' },
+  { path: '/agents', icon: Bot, title: 'Agent编排' },
+  { path: '/rag', icon: Database, title: 'RAG' },
+  { path: '/models', icon: Settings, title: '模型配置' }
 ]
 
 const isActive = (path) => route.path === path
@@ -44,7 +45,7 @@ const navigate = (path) => router.push(path)
           @click="navigate(item.path)"
         >
           <div class="menu-indicator" v-if="isActive(item.path)"></div>
-          <span class="menu-icon">{{ item.icon }}</span>
+          <component :is="item.icon" class="menu-icon" :size="18" :stroke-width="1.8" />
           <span class="menu-title">{{ item.title }}</span>
         </div>
       </nav>

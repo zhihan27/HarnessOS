@@ -1,5 +1,6 @@
 package com.harness.core.tool;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.entity.SubAgentTask;
 import com.harness.core.service.SubAgentService;
 import dev.langchain4j.agent.tool.Tool;
@@ -15,6 +16,7 @@ import java.util.stream.Collectors;
  * 只提供创建子任务功能（执行由Hook链处理）
  */
 @Component
+@RequiredArgsConstructor
 public class SubAgentToolProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(SubAgentToolProvider.class);
@@ -22,10 +24,6 @@ public class SubAgentToolProvider {
     private final SubAgentService subAgentService;
 
     private static final ThreadLocal<SessionContext> currentSession = new ThreadLocal<>();
-
-    public SubAgentToolProvider(SubAgentService subAgentService) {
-        this.subAgentService = subAgentService;
-    }
 
     public static void setSessionContext(String tenantId, String userId, String sessionId) {
         currentSession.set(new SessionContext(tenantId, userId, sessionId));

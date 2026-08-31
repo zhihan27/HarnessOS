@@ -3,6 +3,7 @@ package com.harness.core.controller;
 import com.harness.core.entity.SubAgentTask;
 import com.harness.core.service.SubAgentService;
 import org.springframework.web.bind.annotation.*;
+import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
@@ -11,13 +12,10 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/subAgent")
+@RequiredArgsConstructor
 public class SubAgentController {
 
     private final SubAgentService subAgentService;
-
-    public SubAgentController(SubAgentService subAgentService) {
-        this.subAgentService = subAgentService;
-    }
 
     /**
      * 查询子任务状态

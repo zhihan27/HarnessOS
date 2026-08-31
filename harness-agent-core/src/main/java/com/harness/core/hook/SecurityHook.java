@@ -1,5 +1,6 @@
 package com.harness.core.hook;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.security.SecurityCheckResult;
 import com.harness.core.security.SecurityInterceptor;
 import org.slf4j.Logger;
@@ -12,15 +13,12 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Order(1)
+@RequiredArgsConstructor
 public class SecurityHook implements ChatHook {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityHook.class);
 
     private final SecurityInterceptor securityInterceptor;
-
-    public SecurityHook(SecurityInterceptor securityInterceptor) {
-        this.securityInterceptor = securityInterceptor;
-    }
 
     @Override
     public String getName() {

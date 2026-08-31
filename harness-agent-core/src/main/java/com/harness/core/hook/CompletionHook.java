@@ -1,5 +1,6 @@
 package com.harness.core.hook;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.service.AgentTodoTaskService;
 import org.slf4j.Logger;
@@ -12,15 +13,12 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Order(3)
+@RequiredArgsConstructor
 public class CompletionHook implements ChatHook {
 
     private static final Logger logger = LoggerFactory.getLogger(CompletionHook.class);
 
     private final AgentTodoTaskService todoTaskService;
-
-    public CompletionHook(AgentTodoTaskService todoTaskService) {
-        this.todoTaskService = todoTaskService;
-    }
 
     @Override
     public String getName() {

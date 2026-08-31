@@ -1,5 +1,6 @@
 package com.harness.core.tool;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.service.AgentTodoTaskService;
 import dev.langchain4j.agent.tool.Tool;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
  * - finishTodo：标记完成
  */
 @Component
+@RequiredArgsConstructor
 public class TodoWriteToolProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(TodoWriteToolProvider.class);
@@ -25,10 +27,6 @@ public class TodoWriteToolProvider {
     private final AgentTodoTaskService taskService;
     // 当前会话上下文（由拦截器注入）
     private static final ThreadLocal<SessionContext> currentSession = new ThreadLocal<>();
-
-    public TodoWriteToolProvider(AgentTodoTaskService taskService) {
-        this.taskService = taskService;
-    }
 
     /**
      * 设置当前会话上下文（由拦截器调用）

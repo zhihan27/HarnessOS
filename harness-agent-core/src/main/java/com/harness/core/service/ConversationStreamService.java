@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harness.core.entity.AgentTodoTask;
 import com.harness.core.entity.ChatMessage;
@@ -27,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
  * 集成 Hook 机制和任务跟踪
  */
 @Service
+@RequiredArgsConstructor
 public class ConversationStreamService {
 
     private static final Logger logger = LoggerFactory.getLogger(ConversationStreamService.class);
@@ -36,16 +38,6 @@ public class ConversationStreamService {
     private final ChatHookExecutor hookExecutor;
     private final AgentTodoTaskService todoTaskService;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    public ConversationStreamService(ChatSessionService chatSessionService,
-                                    AiServiceFactory aiServiceFactory,
-                                    ChatHookExecutor hookExecutor,
-                                    AgentTodoTaskService todoTaskService) {
-        this.chatSessionService = chatSessionService;
-        this.aiServiceFactory = aiServiceFactory;
-        this.hookExecutor = hookExecutor;
-        this.todoTaskService = todoTaskService;
-    }
 
     /**
      * 流式对话核心流程（使用统一 AI 服务）

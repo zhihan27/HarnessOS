@@ -12,6 +12,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 对话流式控制器
@@ -25,6 +26,7 @@ import java.util.concurrent.Executors;
  */
 @RestController
 @RequestMapping("/api/chat")
+@RequiredArgsConstructor
 public class ConversationController {
 
     private static final Logger logger = LoggerFactory.getLogger(ConversationController.class);
@@ -32,12 +34,6 @@ public class ConversationController {
     private final ChatSessionService chatSessionService;
     private final ConversationStreamService streamService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
-
-    public ConversationController(ChatSessionService chatSessionService,
-                                 ConversationStreamService streamService) {
-        this.chatSessionService = chatSessionService;
-        this.streamService = streamService;
-    }
 
     /**
      * 流式对话接口（SSE）

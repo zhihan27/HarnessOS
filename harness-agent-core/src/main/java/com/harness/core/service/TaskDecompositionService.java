@@ -1,5 +1,6 @@
 package com.harness.core.service;
 
+import lombok.RequiredArgsConstructor;
 import com.harness.core.dto.SubTaskDefinition;
 import com.harness.core.dto.TaskDecompositionContext;
 import com.harness.core.enums.TaskType;
@@ -18,6 +19,7 @@ import java.util.List;
  * AI真实拆解任务，而非固定模板
  */
 @Service
+@RequiredArgsConstructor
 public class TaskDecompositionService {
 
     private static final Logger logger = LoggerFactory.getLogger(TaskDecompositionService.class);
@@ -61,10 +63,6 @@ public class TaskDecompositionService {
             输出格式：每行一个子任务，格式为"序号|任务类型|子任务描述"
             """)
         String decompose(String taskDescription);
-    }
-
-    public TaskDecompositionService(AiRuntimeModelProvider runtimeModelProvider) {
-        this.runtimeModelProvider = runtimeModelProvider;
     }
 
     /**
