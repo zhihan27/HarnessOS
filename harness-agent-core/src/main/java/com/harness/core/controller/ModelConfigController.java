@@ -9,6 +9,9 @@ import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
+/**
+ * 提供聊天模型和向量模型配置的查询、维护及激活接口。
+ */
 @RestController
 @RequestMapping("/api/model-configs")
 @RequiredArgsConstructor
@@ -27,16 +30,39 @@ public class ModelConfigController {
         return toResponse(service.activeOrFallback());
     }
 
+    /** 查询当前启用的向量模型配置。 */
+    @GetMapping("/active/embedding")
+    public Response activeEmbedding() {
+        ModelConfig config = service.activeEmbeddingOrNull();
+        return config == null ? null : toResponse(config);
+    }
+
     @PostMapping
     public Response create(@RequestBody Request req) {
-        ModelConfig c = service.create(req.name(), req.baseUrl(), req.modelName(), req.token(), req.activate());
+        ModelConfig c = service.create(
+                req.name(),
+                req.provider(),
+                req.modelType(),
+                req.baseUrl(),
+                req.modelName(),
+                req.token(),
+                req.activate()
+        );
         refreshIfActive(c);
         return toResponse(c);
     }
 
     @PutMapping("/{id}")
     public Response update(@PathVariable Long id, @RequestBody Request req) {
-        ModelConfig c = service.update(id, req.name(), req.baseUrl(), req.modelName(), req.token());
+        ModelConfig c = service.update(
+                id,
+                req.name(),
+                req.provider(),
+                req.modelType(),
+                req.baseUrl(),
+                req.modelName(),
+                req.token()
+        );
         if (Boolean.TRUE.equals(c.getActive())) refresh();
         return toResponse(c);
     }
@@ -70,13 +96,13 @@ public class ModelConfigController {
 
     private Response toResponse(ModelConfig c) {
         String token = service.decryptToken(c);
-        return new Response(c.getId(), c.getName(), c.getProvider(), c.getBaseUrl(), c.getModelName(), !token.isBlank(), token.isBlank() ? "" : "••••••••", Boolean.TRUE.equals(c.getActive()));
+        return new Response(c.getId(), c.getName(), c.getProvider(), c.getModelType(), c.getBaseUrl(), c.getModelName(), !token.isBlank(), token.isBlank() ? "********" : "********", Boolean.TRUE.equals(c.getActive()));
     }
 
-    public record Request(String name, String baseUrl, String modelName, String token, boolean activate) {
+    public record Request(String name, String provider, String modelType, String baseUrl, String modelName, String token, boolean activate) {
     }
 
-    public record Response(Long id, String name, String provider, String baseUrl, String modelName,
+    public record Response(Long id, String name, String provider, String modelType, String baseUrl, String modelName,
                            boolean tokenConfigured, String maskedToken, boolean active) {
     }
 }

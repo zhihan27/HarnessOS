@@ -1,5 +1,11 @@
 package com.harness.core.service;
 
+import com.harness.core.entity.ModelConfig;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -10,21 +16,50 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 提供无需外部模型的文本特征向量，用于本地 RAG 检索。
+ * 负责调用 OpenAI 兼容 Embedding 服务生成语义向量，并提供本地降级实现。
  */
 @Service
 public class RagEmbeddingService {
 
-    /** 向量维度，必须与数据库 rag_chunks.embedding 的 vector(384) 保持一致。 */
-    private static final int DIMENSION = 384;
+    private static final Logger logger = LoggerFactory.getLogger(RagEmbeddingService.class);
+
+    /** 向量维度，必须与数据库 rag_chunks.embedding 的 vector(1024) 保持一致。 */
+    private static final int DIMENSION = 1024;
+    private final ModelConfigService modelConfigService;
+
+    public RagEmbeddingService(ModelConfigService modelConfigService) {
+        this.modelConfigService = modelConfigService;
+    }
 
     /**
-     * 将文本转换为归一化的特征哈希向量。
+     * 将文本转换为归一化的语义向量；未配置向量模型时使用本地特征哈希。
      *
      * @param text 待向量化文本
      * @return 固定维度向量
      */
     public double[] embed(String text) {
+        ModelConfig config = modelConfigService.activeEmbeddingOrNull();
+        if (config != null) {
+            try {
+                EmbeddingModel model = OpenAiEmbeddingModel.builder()
+                        .apiKey(modelConfigService.decryptToken(config))
+                        .baseUrl(config.getBaseUrl())
+                        .modelName(config.getModelName())
+                        .dimensions(DIMENSION)
+                        .build();
+                double[] vector = model.embed(TextSegment.from(text == null ? "" : text))
+                        .content()
+                        .vectorAsDoubleArray();
+                if (vector.length != DIMENSION) {
+                    throw new IllegalStateException("向量模型返回维度异常：期望 " + DIMENSION + "，实际 " + vector.length);
+                }
+                return vector;
+            } catch (RuntimeException exception) {
+                logger.error("调用向量模型失败，无法完成 RAG 向量化。配置 id={}，model={}", config.getId(), config.getModelName(), exception);
+                throw new IllegalStateException("调用向量模型失败，请检查 Embedding 配置和服务可用性", exception);
+            }
+        }
+        logger.debug("未配置 Embedding 模型，使用本地特征向量降级");
         double[] vector = new double[DIMENSION];
         List<String> features = features(text);
         for (String feature : features) {

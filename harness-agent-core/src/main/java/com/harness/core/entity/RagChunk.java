@@ -29,7 +29,7 @@ public class RagChunk {
     private String content;
     /** 分段 token 数量估算值。 */
     private Integer tokenCount;
-    /** 384 维向量的数据库映射字段。 */
+    /** 1024 维向量的数据库映射字段。 */
     private String embedding;
     /** 是否参与检索。 */
     private Boolean active;

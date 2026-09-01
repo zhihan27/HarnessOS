@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -46,12 +47,16 @@ public class ModelConfigService {
     }
 
     public ModelConfig activeOrFallback() {
-        ModelConfig active = mapper.selectOne(new LambdaQueryWrapper<ModelConfig>().eq(ModelConfig::getActive, true).last("LIMIT 1"));
+        ModelConfig active = mapper.selectOne(new LambdaQueryWrapper<ModelConfig>()
+                .eq(ModelConfig::getActive, true)
+                .eq(ModelConfig::getModelType, "chat")
+                .last("LIMIT 1"));
         if (active != null) return active;
         ModelConfig fallback = new ModelConfig();
         fallback.setId(0L);
         fallback.setName("环境变量默认配置");
         fallback.setProvider("openai");
+        fallback.setModelType("chat");
         fallback.setBaseUrl(fallbackBaseUrl);
         fallback.setModelName(fallbackModel);
         fallback.setApiTokenCiphertext(encrypt(fallbackToken));
@@ -59,22 +64,57 @@ public class ModelConfigService {
         return fallback;
     }
 
+    /** 返回当前启用的向量模型；未配置时返回 null，由 RAG 使用本地降级实现。 */
+    /**
+     * 返回当前启用的向量模型配置。
+     *
+     * @return 向量模型配置；未配置时返回 null
+     */
+    public ModelConfig activeEmbeddingOrNull() {
+        return mapper.selectOne(new LambdaQueryWrapper<ModelConfig>()
+                .eq(ModelConfig::getActive, true)
+                .eq(ModelConfig::getModelType, "embedding")
+                .last("LIMIT 1"));
+    }
+
     @Transactional
-    public ModelConfig create(String name, String baseUrl, String modelName, String token, boolean activate) {
+    public ModelConfig create(String name,
+                              String provider,
+                              String modelType,
+                              String baseUrl,
+                              String modelName,
+                              String token,
+                              boolean activate) {
         validate(name, baseUrl, modelName, token, true);
+        String normalizedType = normalizeModelType(modelType);
         ModelConfig config = new ModelConfig();
-        config.setName(name.trim()); config.setProvider("openai"); config.setBaseUrl(normalizeUrl(baseUrl));
-        config.setModelName(modelName.trim()); config.setApiTokenCiphertext(encrypt(token)); config.setActive(false);
+        config.setName(name.trim());
+        config.setProvider(provider == null || provider.isBlank() ? "openai" : provider.trim());
+        config.setModelType(normalizedType);
+        config.setBaseUrl(normalizeUrl(baseUrl));
+        config.setModelName(modelName.trim());
+        config.setApiTokenCiphertext(encrypt(token));
+        config.setActive(false);
         mapper.insert(config);
         if (activate) activate(config.getId());
         return mapper.selectById(config.getId());
     }
 
     @Transactional
-    public ModelConfig update(Long id, String name, String baseUrl, String modelName, String token) {
+    public ModelConfig update(Long id,
+                              String name,
+                              String provider,
+                              String modelType,
+                              String baseUrl,
+                              String modelName,
+                              String token) {
         ModelConfig config = require(id);
         validate(name, baseUrl, modelName, token, token != null && !token.isBlank());
-        config.setName(name.trim()); config.setBaseUrl(normalizeUrl(baseUrl)); config.setModelName(modelName.trim());
+        config.setName(name.trim());
+        config.setProvider(provider == null || provider.isBlank() ? "openai" : provider.trim());
+        config.setModelType(normalizeModelType(modelType));
+        config.setBaseUrl(normalizeUrl(baseUrl));
+        config.setModelName(modelName.trim());
         if (token != null && !token.isBlank()) config.setApiTokenCiphertext(encrypt(token));
         mapper.updateById(config);
         return mapper.selectById(id);
@@ -83,7 +123,9 @@ public class ModelConfigService {
     @Transactional
     public ModelConfig activate(Long id) {
         ModelConfig config = require(id);
-        mapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ModelConfig>().set(ModelConfig::getActive, false));
+        mapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ModelConfig>()
+                .eq(ModelConfig::getModelType, normalizeModelType(config.getModelType()))
+                .set(ModelConfig::getActive, false));
         config.setActive(true);
         mapper.updateById(config);
         return config;
@@ -117,6 +159,16 @@ public class ModelConfigService {
             if (host.equals("localhost") || host.equals("metadata.google.internal") || host.equals("169.254.169.254") || isPrivate(host))
                 throw new IllegalArgumentException("Base URL 不允许指向本机或内网地址");
         } catch (IllegalArgumentException e) { throw e; }
+    }
+
+    private String normalizeModelType(String modelType) {
+        String normalized = modelType == null || modelType.isBlank()
+                ? "chat"
+                : modelType.trim().toLowerCase(Locale.ROOT);
+        if (!"chat".equals(normalized) && !"embedding".equals(normalized)) {
+            throw new IllegalArgumentException("模型类型仅支持 chat 或 embedding");
+        }
+        return normalized;
     }
 
     private boolean isPrivate(String host) {

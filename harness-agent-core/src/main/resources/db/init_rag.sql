@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
     title VARCHAR(255) NOT NULL DEFAULT '',
     content TEXT NOT NULL,
     token_count INTEGER NOT NULL DEFAULT 0,
-    embedding vector(384) NOT NULL,
+    embedding vector(1024) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -83,7 +83,7 @@ COMMENT ON COLUMN rag_chunks.position IS '分段在文档中的顺序，从 1 �
 COMMENT ON COLUMN rag_chunks.title IS '分段标题';
 COMMENT ON COLUMN rag_chunks.content IS '分段文本内容';
 COMMENT ON COLUMN rag_chunks.token_count IS '分段估算 token 数量';
-COMMENT ON COLUMN rag_chunks.embedding IS '384 维文本嵌入向量，使用 pgvector vector 类型存储';
+COMMENT ON COLUMN rag_chunks.embedding IS '1024 维文本嵌入向量，使用 pgvector vector 类型存储';
 COMMENT ON COLUMN rag_chunks.active IS '是否参与检索';
 COMMENT ON COLUMN rag_chunks.created_at IS '创建时间';
 COMMENT ON COLUMN rag_chunks.updated_at IS '最后更新时间';

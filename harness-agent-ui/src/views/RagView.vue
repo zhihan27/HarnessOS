@@ -418,7 +418,7 @@ onMounted(loadKnowledgeBases)
             <div><dt>检索模式</dt><dd>{{ activeKnowledgeBase.retrievalMode }}</dd><p>支持 embedding、keywords 与 blend。</p></div>
             <div><dt>召回数量</dt><dd>Top {{ activeKnowledgeBase.topK }}</dd><p>命中测试最多返回的分段数量。</p></div>
             <div><dt>相似度阈值</dt><dd>{{ scorePercent(activeKnowledgeBase.similarityThreshold) }}</dd><p>低于阈值的分段不会进入结果集。</p></div>
-            <div><dt>向量存储</dt><dd>vector(384)</dd><p>PostgreSQL 14 pgvector 余弦距离检索。</p></div>
+            <div><dt>向量存储</dt><dd>vector(1024)</dd><p>PostgreSQL 14 pgvector 余弦距离检索。</p></div>
           </dl>
         </section>
       </template>

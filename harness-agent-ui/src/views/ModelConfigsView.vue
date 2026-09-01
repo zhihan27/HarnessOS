@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { get, post, put, del } from '@/api/request'
 import { API_ROUTES } from '@/api/config'
 
@@ -7,11 +7,13 @@ const configs = ref([])
 const error = ref('')
 const saving = ref(false)
 const editingId = ref(null)
-const form = reactive({ name: '', baseUrl: '', modelName: '', token: '', activate: false })
+const form = reactive({ name: '', provider: 'openai', modelType: 'chat', baseUrl: '', modelName: '', token: '', activate: false })
+const modelType = ref('chat')
+const visibleConfigs = computed(() => configs.value.filter(item => (item.modelType || 'chat') === modelType.value))
 
 const resetForm = () => {
   editingId.value = null
-  Object.assign(form, { name: '', baseUrl: '', modelName: '', token: '', activate: false })
+  Object.assign(form, { name: '', provider: 'openai', modelType: modelType.value, baseUrl: '', modelName: '', token: '', activate: false })
 }
 
 const openCreate = () => {
@@ -58,11 +60,19 @@ const edit = (item) => {
   editingId.value = item.id
   Object.assign(form, {
     name: item.name,
+    provider: item.provider || 'openai',
+    modelType: item.modelType || 'chat',
     baseUrl: item.baseUrl,
     modelName: item.modelName,
     token: '',
     activate: false
   })
+}
+
+const switchType = (type) => {
+  modelType.value = type
+  resetForm()
+  error.value = ''
 }
 
 const activate = async (id) => {
@@ -92,14 +102,15 @@ onMounted(load)
   <div class="model-page">
     <header class="page-header">
       <div class="header-copy"><div class="eyebrow"><span class="eyebrow-dot"></span>AI PROVIDERS</div><h1>模型配置</h1><p>集中管理兼容 OpenAI API 的服务，并选择当前使用的模型。</p></div>
-      <button class="primary add-button" type="button" @click="openCreate"><span class="button-icon">＋</span>新建配置</button>
+      <button class="primary add-button" type="button" @click="openCreate"><span class="button-icon">＋</span>新建{{ modelType === 'embedding' ? '向量' : '聊天' }}模型</button>
     </header>
     <div v-if="error" class="error" role="alert"><span class="error-icon">!</span>{{ error }}</div>
     <section class="list-section">
-      <div class="section-heading"><div><h2>已保存的服务</h2><p>启用后，智能对话将使用对应的模型服务。</p></div><span class="count-badge">{{ configs.length }} 个</span></div>
-      <div v-if="!configs.length" class="empty"><div class="empty-icon">◌</div><strong>还没有模型配置</strong><span>添加一个服务，开始使用你的 AI 模型。</span><button class="secondary" type="button" @click="openCreate">添加第一个配置</button></div>
+      <div class="model-tabs" role="tablist"><button type="button" :class="{ selected: modelType === 'chat' }" @click="switchType('chat')">聊天模型</button><button type="button" :class="{ selected: modelType === 'embedding' }" @click="switchType('embedding')">向量模型</button></div>
+      <div class="section-heading"><div><h2>{{ modelType === 'embedding' ? '向量模型服务' : '聊天模型服务' }}</h2><p>{{ modelType === 'embedding' ? '用于文档分段和查询的语义向量化。' : '启用后，智能对话将使用对应的模型服务。' }}</p></div><span class="count-badge">{{ visibleConfigs.length }} 个</span></div>
+      <div v-if="!visibleConfigs.length" class="empty"><div class="empty-icon">◌</div><strong>还没有{{ modelType === 'embedding' ? '向量' : '聊天' }}模型配置</strong><span>{{ modelType === 'embedding' ? '添加 Embedding 服务后，RAG 将启用语义搜索。' : '添加一个服务，开始使用你的 AI 模型。' }}</span><button class="secondary" type="button" @click="openCreate">添加第一个配置</button></div>
       <div v-else class="config-list">
-        <article v-for="item in configs" :key="item.id" class="config-row" :class="{ 'is-active': item.active }">
+        <article v-for="item in visibleConfigs" :key="item.id" class="config-row" :class="{ 'is-active': item.active }">
           <div class="provider-mark">{{ item.name?.charAt(0)?.toUpperCase() || 'AI' }}</div>
           <div class="config-main"><div class="config-title-row"><h3>{{ item.name }}</h3><span v-if="item.active" class="active"><span class="active-dot"></span>当前使用</span></div><div class="config-model">{{ item.modelName }}</div><div class="config-meta"><span class="meta-label">Endpoint</span>{{ item.baseUrl }}<span class="meta-divider"></span><span class="meta-label">Token</span>{{ item.tokenConfigured ? item.maskedToken : '未配置' }}</div></div>
           <div class="row-actions"><button v-if="!item.active" class="text-button" type="button" @click="activate(item.id)">设为当前</button><span v-else class="enabled">正在使用</span><button class="icon-button" type="button" title="编辑配置" aria-label="编辑配置" @click="edit(item)">✎</button><button class="icon-button danger-icon" type="button" title="删除配置" aria-label="删除配置" @click="remove(item)">⌫</button></div>
@@ -109,9 +120,9 @@ onMounted(load)
     <div v-if="editingId" class="modal-backdrop" @click.self="resetForm">
       <section class="editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title" @click.stop>
         <div class="modal-header"><div><div class="modal-kicker">{{ editingId === 'new' ? 'NEW PROVIDER' : 'EDIT PROVIDER' }}</div><h2 id="editor-title">{{ editingId === 'new' ? '新建模型配置' : '编辑模型配置' }}</h2></div><button class="close-button" type="button" title="关闭" aria-label="关闭" @click="resetForm">×</button></div>
-        <p class="modal-description">填写服务连接信息，保存后即可在对话中使用。</p>
+        <p class="modal-description">填写 OpenAI 兼容服务连接信息，保存后即可使用。</p>
         <div v-if="error" class="modal-error">{{ error }}</div>
-        <form @submit.prevent="submit"><div class="form-grid"><label>显示名称<input v-model="form.name" autocomplete="off" placeholder="例如：生产环境" /></label><label>模型名称<input v-model="form.modelName" autocomplete="off" placeholder="例如：gpt-4o-mini" /></label><label class="full-width">Base URL<input v-model="form.baseUrl" autocomplete="url" placeholder="https://api.openai.com/v1" /></label><label class="full-width">API Token <span v-if="editingId !== 'new'" class="hint">留空则保持原 Token</span><input v-model="form.token" type="password" autocomplete="new-password" placeholder="sk-..." /></label></div><div class="form-actions"><button class="secondary" type="button" @click="resetForm">取消</button><button class="primary" type="submit" :disabled="saving">{{ saving ? '保存中…' : '保存配置' }}</button></div></form>
+        <form @submit.prevent="submit"><div class="form-grid"><label>显示名称<input v-model="form.name" autocomplete="off" placeholder="例如：阿里云向量模型" /></label><label>Provider<input v-model="form.provider" autocomplete="off" placeholder="openai 或 dashscope" /></label><label class="full-width">模型名称<input v-model="form.modelName" autocomplete="off" :placeholder="modelType === 'embedding' ? '例如：qwen3.7-text-embedding' : '例如：gpt-4o-mini'" /></label><label class="full-width">Base URL<input v-model="form.baseUrl" autocomplete="url" placeholder="https://api.openai.com/v1" /></label><label class="full-width">API Token <span v-if="editingId !== 'new'" class="hint">留空则保持原 Token</span><input v-model="form.token" type="password" autocomplete="new-password" placeholder="sk-..." /></label></div><div class="form-actions"><button class="secondary" type="button" @click="resetForm">取消</button><button class="primary" type="submit" :disabled="saving">{{ saving ? '保存中…' : '保存配置' }}</button></div></form>
       </section>
     </div>
   </div>
@@ -129,6 +140,9 @@ button, input { font: inherit; } button { cursor: pointer; transition: all .2s e
 .primary { background: #1d1d1f; color: #fff; box-shadow: 0 5px 14px rgba(29,29,31,.16); } .primary:hover { background: #3a3a3c; transform: translateY(-1px); } .primary:disabled { opacity: .55; cursor: wait; transform: none; } .secondary { color: #515154; background: #f5f5f7; border-color: #e5e5ea; } .secondary:hover { background: #eaeaef; } .button-icon { font-size: 18px; vertical-align: -1px; margin-right: 4px; }
 .error { display: flex; align-items: center; gap: 10px; max-width: 980px; margin: 0 auto 18px; padding: 12px 14px; border: 1px solid #ffd6d6; border-radius: 9px; color: #b00020; background: #fff7f7; font-size: 13px; } .error-icon { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff; background: #d70015; font-size: 11px; font-weight: 700; }
 .list-section { max-width: 980px; margin: 0 auto; padding: 26px 28px 10px; border: 1px solid rgba(0,0,0,.07); border-radius: 14px; background: rgba(255,255,255,.78); box-shadow: 0 12px 40px rgba(0,0,0,.05); backdrop-filter: blur(14px); }
+.model-tabs { display: flex; gap: 4px; margin-bottom: 24px; padding: 4px; width: fit-content; border-radius: 9px; background: #f2f2f7; }
+.model-tabs button { border: 0; border-radius: 7px; padding: 8px 14px; color: #6e6e73; background: transparent; font-size: 13px; }
+.model-tabs button.selected { color: #1d1d1f; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 20px; } .section-heading h2 { margin-bottom: 6px; font-size: 18px; } .count-badge { padding: 6px 10px; border-radius: 999px; color: #6e6e73; background: #f2f2f7; font-size: 12px; } .config-list { border-top: 1px solid #e5e5ea; }
 .config-row { display: flex; align-items: center; gap: 16px; padding: 20px 4px; border-bottom: 1px solid #e5e5ea; } .config-row:last-child { border-bottom: 0; } .config-row.is-active { margin: 0 -12px; padding-left: 16px; padding-right: 16px; border-radius: 10px; background: linear-gradient(90deg, rgba(48,209,88,.07), transparent 75%); } .provider-mark { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; border-radius: 11px; color: #0a84ff; background: #eef6ff; font-size: 17px; font-weight: 700; } .config-main { min-width: 0; flex: 1; } .config-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .config-title-row h3 { font-size: 15px; font-weight: 650; } .active { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; color: #1f8a45; background: #eaf8ee; font-size: 11px; font-weight: 600; } .config-model { margin-top: 5px; color: #515154; font-size: 13px; font-weight: 600; } .config-meta { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 7px; overflow: hidden; color: #86868b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; } .meta-label { color: #a1a1a6; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; } .meta-divider { width: 3px; height: 3px; border-radius: 50%; background: #c7c7cc; } .row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; } .text-button { border: 0; background: transparent; color: #0a84ff; font-size: 12px; font-weight: 600; } .text-button:hover { color: #0065c8; } .enabled { color: #1f8a45; font-size: 12px; font-weight: 600; } .icon-button, .close-button { display: grid; place-items: center; border: 0; color: #6e6e73; background: transparent; } .icon-button { width: 31px; height: 31px; border-radius: 8px; font-size: 17px; } .icon-button:hover { color: #1d1d1f; background: #f2f2f7; } .danger-icon:hover { color: #d70015; background: #fff0f0; }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 58px 20px; color: #86868b; text-align: center; } .empty-icon { color: #c7c7cc; font-size: 38px; line-height: 1; } .empty strong { margin-top: 4px; color: #515154; font-size: 15px; } .empty span { margin-bottom: 12px; font-size: 13px; }
